@@ -1,0 +1,8 @@
+# 這些檔案在 Linux 上執行，強制 LF。Windows 上編輯過的 CRLF 進到
+# Docker build 或 CI 的 shell 裡會壞掉。
+* text=auto eol=lf
+*.png binary
+*.webp binary
+*.mp3 binary
+*.mp4 binary
+*.pdf binary
