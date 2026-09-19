@@ -1,0 +1,46 @@
+.screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: max(1.25rem, env(safe-area-inset-top)) 1.25rem max(1.25rem, env(safe-area-inset-bottom));
+}
+.screen[hidden] { display: none; }
+
+/* 加入畫面 */
+#joinScreen { justify-content: center; gap: .75rem; max-width: 24rem; margin: 0 auto; }
+#joinScreen h1 { margin: 0; font-size: 2rem; font-weight: 900; text-align: center; }
+.lede { margin: 0 0 .5rem; color: var(--ink-soft); text-align: center; }
+.name {
+  width: 100%; padding: 1rem; font: inherit; font-size: 1.25rem; text-align: center;
+  border: 2px solid var(--line); border-radius: 1rem; background: var(--card);
+  user-select: text; -webkit-user-select: text;
+}
+.hint { min-height: 1.4em; margin: .25rem 0 0; text-align: center; font-size: .9rem; color: var(--ink-soft); }
+
+/* 遊玩畫面：整面是隊伍顏色，遠遠看過去全場就是一片色海 */
+.me { display: flex; align-items: baseline; justify-content: space-between; }
+.team { font-size: 1.6rem; font-weight: 900; }
+.who { font-size: 1rem; opacity: .8; }
+
+.pad {
+  position: relative;
+  flex: 1;
+  margin-top: 1rem;
+  border-radius: 1.5rem;
+  border: 3px dashed currentColor;
+  opacity: .95;
+  display: grid;
+  place-items: center;
+  touch-action: none;
+}
+.knob {
+  position: absolute;
+  width: 5.5rem; height: 5.5rem;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: .3;
+  pointer-events: none;
+  transition: transform .05s linear;
+}
+.padHint { margin: 0; font-size: 1rem; opacity: .65; pointer-events: none; }

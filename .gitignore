@@ -1,0 +1,25 @@
+node_modules/
+dist/
+
+# 連線設定由 CI 從 repo secret / variable 寫進 .env.production，不進版本庫。
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Fly.io
+.fly/
+fly.toml.bak
+*.fly.log
+
+# 壓力測試的輸出
+scripts/out/
+
+# 編輯器與作業系統
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
+npm-debug.log*

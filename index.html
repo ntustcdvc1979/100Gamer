@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>百人派對遊戲</title>
+<meta name="robots" content="noindex">
+</head>
+<body>
+<main class="wrap">
+  <h1>百人派對遊戲</h1>
+  <p class="lede">現場用的兩個畫面。</p>
+
+  <div class="card">
+    <h2>🖥️ 投影幕（主持人用）</h2>
+    <p>接上投影機後開這一頁，確認右下角顯示「● 已連線」。</p>
+    <a class="btn" href="stage.html">開啟投影幕 →</a>
+  </div>
+
+  <div class="card qrbox">
+    <h2>📱 玩家入口</h2>
+    <div class="qr" id="qr"></div>
+    <p class="url" id="url"></p>
+    <a class="btn" href="play.html">開啟手機頁面 →</a>
+  </div>
+
+  <div class="card">
+    <h2>✅ 活動前要做的事</h2>
+    <ol>
+      <li>照 <a href="docs/SETUP.md">docs/SETUP.md</a> 建 Firebase、<b>升級 Blaze</b>、設預算警示。</li>
+      <li>投影幕先開一次，確認右下角是「● 已連線」而不是「本機模式」。</li>
+      <li>上面的 QR <b>印 6 張分散貼</b>——100 人擠一張掃不到。</li>
+      <li>準備備用筆電與筆電的行動網路熱點。</li>
+    </ol>
+  </div>
+</main>
+<script type="module" src="/src/index/main.ts"></script>
+</body>
+</html>

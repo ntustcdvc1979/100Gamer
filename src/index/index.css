@@ -1,0 +1,16 @@
+.wrap { width: 100%; max-width: 40rem; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+h1 { margin: .25rem 0 .5rem; text-align: center; font-size: clamp(1.8rem, 6vw, 2.6rem); font-weight: 900; }
+.lede { text-align: center; color: var(--ink-soft); margin: 0 auto 2rem; }
+.card {
+  background: var(--card); border: 2px solid var(--line); border-radius: 1.4rem;
+  padding: 1.4rem; margin-bottom: 1rem;
+}
+.card h2 { margin: 0 0 .5rem; font-size: 1.15rem; font-weight: 900; }
+.card p { margin: 0 0 .9rem; color: var(--ink-soft); font-size: .95rem; }
+.card .btn { text-align: center; text-decoration: none; }
+.qrbox { text-align: center; }
+.qrbox .qr { width: min(16rem, 60vw); margin: 0 auto 1rem; border: 2px solid var(--line); }
+.qrbox .qr svg { display: block; width: 100%; height: auto; }
+.url { font-size: .82rem; color: var(--ink-soft); word-break: break-all; }
+ol { padding-left: 1.2rem; margin: 0; }
+ol li { margin-bottom: .5rem; font-size: .95rem; }

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no, maximum-scale=1">
+<meta name="theme-color" content="#FAF6EA">
+<title>加入遊戲</title>
+<meta name="robots" content="noindex">
+</head>
+<body class="app">
+
+<!-- 加入畫面 -->
+<section class="screen" id="joinScreen">
+  <h1>加入遊戲</h1>
+  <p class="lede">輸入一個名字，暱稱就好。</p>
+  <input id="name" class="name" type="text" maxlength="8" placeholder="你的名字"
+         autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go">
+  <button class="btn" id="joinBtn" disabled>加入</button>
+  <p class="hint" id="joinHint">連線中…</p>
+</section>
+
+<!-- 遊玩畫面：整面是隊伍顏色 -->
+<section class="screen" id="playScreen" hidden>
+  <header class="me">
+    <div class="team" id="teamName">—</div>
+    <div class="who" id="myName">—</div>
+  </header>
+  <div class="pad" id="pad">
+    <div class="knob" id="knob"></div>
+    <p class="padHint">按住並移動</p>
+  </div>
+</section>
+
+<div class="status" id="status"><span class="dot"></span><span id="statusText">連線中…</span></div>
+
+<script type="module" src="/src/play/main.ts"></script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # 連線設定寫進 .env.production，不進版本庫。
+      #
+      # WS_URL 是 repo variable 不是 secret —— 它是公開網址，
+      # 設成 secret 的話 log 會被遮成 ***，出事的時候查不了。
+      # FIREBASE_CONFIG 留著當備援：伺服器掛了還有東西可以退。
+      # 兩個都沒設也不會壞，網站會退到本機模式，投影幕照樣跑得動。
+      - name: Write runtime config
+        env:
+          WS_URL: ${{ vars.VITE_WS_URL }}
+          FIREBASE_CONFIG: ${{ secrets.FIREBASE_CONFIG }}
+        run: |
+          : > .env.production
+          if [ -n "$WS_URL" ]; then
+            printf 'VITE_WS_URL=%s\n' "$WS_URL" >> .env.production
+            echo "遊戲伺服器：$WS_URL"
+          else
+            echo "::warning::沒有 VITE_WS_URL variable，不會連遊戲伺服器"
+          fi
+          if [ -n "$FIREBASE_CONFIG" ]; then
+            printf 'VITE_FIREBASE_CONFIG=%s\n' "$FIREBASE_CONFIG" >> .env.production
+            echo "Firebase 備援：已設定"
+          fi
+          if [ ! -s .env.production ]; then
+            echo "::warning::兩個都沒設，這次部署會是本機模式"
+          fi
+
+      - name: Build
+        env:
+          BASE_PATH: /${{ github.event.repository.name }}/
+        run: npm run build
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

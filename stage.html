@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>投影幕｜百人派對遊戲</title>
+<meta name="robots" content="noindex">
+</head>
+<body>
+<canvas id="stage"></canvas>
+
+<div class="hud">
+  <div class="room">房號 <b id="room">—</b></div>
+  <div class="count"><b id="count">0</b> 人已加入</div>
+</div>
+
+<div class="qr-panel" id="qrPanel">
+  <div class="qr" id="qr"></div>
+  <p class="url" id="url"></p>
+</div>
+
+<div class="status" id="status"><span class="dot"></span><span id="statusText">連線中…</span></div>
+
+<script type="module" src="/src/stage/main.ts"></script>
+</body>
+</html>

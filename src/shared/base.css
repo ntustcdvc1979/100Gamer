@@ -1,0 +1,74 @@
+/* 共用樣式與行動裝置的防呆設定 */
+
+:root {
+  --ink: #1B1B1F;
+  --ink-soft: #5C5C68;
+  --cream: #FAF6EA;
+  --card: #FFFFFF;
+  --line: #E2DACA;
+  --accent: #F2A72C;
+  --ok: #5C9E31;
+  --warn: #E4572E;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  font-family: system-ui, -apple-system, "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+  color: var(--ink);
+  background: var(--cream);
+}
+
+/* 手機端的四道防呆。少了任何一道，玩到一半就會有人不小心把頁面重新整理，
+   或是在瘋狂滑動的時候觸發雙擊縮放。 */
+body.app {
+  overscroll-behavior: none;   /* 擋下拉重新整理 */
+  touch-action: none;          /* 擋捲動與雙擊縮放 */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  overflow: hidden;
+}
+
+.btn {
+  display: block;
+  width: 100%;
+  padding: 1rem;
+  border: none;
+  border-radius: 1rem;
+  background: var(--ink);
+  color: #fff;
+  font: inherit;
+  font-weight: 800;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+.btn:disabled { opacity: .45; }
+
+/* 右下角的連線狀態。現場開場前就是看這一顆。 */
+.status {
+  position: fixed;
+  right: .75rem;
+  bottom: .75rem;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .35rem .7rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, .55);
+  color: #fff;
+  font-size: .8rem;
+  font-variant-numeric: tabular-nums;
+}
+.status .dot {
+  width: .55rem;
+  height: .55rem;
+  border-radius: 50%;
+  background: var(--warn);
+}
+.status.on .dot { background: var(--ok); }

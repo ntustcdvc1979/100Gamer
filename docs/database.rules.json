@@ -1,0 +1,43 @@
+{
+  "rules": {
+    "rooms": {
+      "$room": {
+        "host": {
+          ".read": true,
+          ".write": "auth != null && (!data.exists() || data.val() === auth.uid)",
+          ".validate": "newData.isString()"
+        },
+        "state": {
+          ".read": true,
+          ".write": "auth != null && root.child('rooms/'+$room+'/host').val() === auth.uid"
+        },
+        "seat": {
+          ".read": true,
+          ".write": "auth != null && (!data.exists() || newData.val() === data.val() + 1)",
+          ".validate": "newData.isNumber()"
+        },
+        "players": {
+          ".read": true,
+          "$uid": {
+            ".write": "auth != null && $uid === auth.uid",
+            ".validate": "!newData.exists() || newData.hasChildren(['name','team'])",
+            "name": { ".validate": "newData.isString() && newData.val().length <= 8" },
+            "team": { ".validate": "newData.isString() && newData.val().length === 1" },
+            "joinedAt": { ".validate": "newData.isNumber()" },
+            "$other": { ".validate": false }
+          }
+        },
+        "inputs": {
+          ".read": true,
+          "$uid": {
+            ".write": "auth != null && $uid === auth.uid",
+            "v": { ".validate": "newData.hasChildren(['0','1'])" },
+            "t": { ".validate": "newData.isNumber()" },
+            "$other": { ".validate": false }
+          }
+        },
+        "$other": { ".validate": false }
+      }
+    }
+  }
+}

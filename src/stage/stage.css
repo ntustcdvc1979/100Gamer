@@ -1,0 +1,32 @@
+body { background: #14141A; overflow: hidden; }
+
+#stage { position: fixed; inset: 0; display: block; }
+
+.hud {
+  position: fixed;
+  left: 1.5rem;
+  top: 1.25rem;
+  z-index: 10;
+  color: #fff;
+  font-size: clamp(1rem, 1.6vw, 1.4rem);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, .6);
+}
+.hud b { font-size: 1.6em; font-weight: 900; font-variant-numeric: tabular-nums; }
+.hud .room { opacity: .7; }
+
+.qr-panel {
+  position: fixed;
+  right: 1.5rem;
+  top: 1.25rem;
+  z-index: 10;
+  width: min(22rem, 24vw);
+  padding: .75rem;
+  border-radius: 1rem;
+  background: #fff;
+  text-align: center;
+  transition: width .4s ease;
+}
+.qr-panel.small { width: min(11rem, 13vw); }
+.qr-panel .qr svg { display: block; width: 100%; height: auto; }
+.qr-panel .url { margin: .5rem 0 0; font-size: .7rem; color: #666; word-break: break-all; }
+.qr-panel.small .url { display: none; }
