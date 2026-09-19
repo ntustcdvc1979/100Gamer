@@ -105,6 +105,24 @@ function startPlaying(room: Room, name: string, team: TeamId): void {
   joinScreen.hidden = true;
   playScreen.hidden = false;
 
+  // 訂閱 state —— 這是手機唯一被允許訂閱的東西。
+  // 大禮堂後排看不清楚投影幕，「現在要幹嘛」一定要出現在自己手機上。
+  const say = $("say");
+  const quads = $("quads");
+  room.onState((s) => {
+    say.textContent = s?.hint ?? "";
+    const options = s?.options ?? [];
+    quads.hidden = options.length !== 4;
+    if (!quads.hidden) {
+      [...quads.children].forEach((el, i) => {
+        el.textContent = options[i] ?? "";
+      });
+      $("padHint").textContent = "往你的選擇推";
+    } else {
+      $("padHint").textContent = "按住並移動";
+    }
+  });
+
   document.body.style.background = def.color;
   document.body.style.color = def.ink;
   document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute("content", def.color);

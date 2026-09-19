@@ -3,13 +3,23 @@
 
    它是唯一做全域訂閱的客戶端：state + players + inputs 三個都聽。
    所有運算與渲染都在這裡，手機端只負責送搖桿。
+
+   鍵盤（沿用 orientation 的手感）：
+     →        下一關（遊戲可以先吃掉，例如換題目、換字）
+     ←        上一關
+     T        開始／暫停這一局
+     R        重來這一關
+     F        全螢幕
+     Esc      關卡選單
    ============================================================ */
 
 import "../shared/base.css";
 import "./stage.css";
 import { svg } from "../shared/qrcode.js";
 import { openRoom, playUrl } from "../net/room";
+import { createSurface } from "./canvas";
 import { Field } from "./render";
+import { createGames, type Game, type GameContext } from "./games";
 import type { Player } from "../net/schema";
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -48,8 +58,38 @@ async function main(): Promise<void> {
     $("qr").textContent = "QR 產生失敗";
   }
 
-  const field = new Field($<HTMLCanvasElement>("stage"));
-  field.start();
+  const surface = createSurface($<HTMLCanvasElement>("stage"));
+  const field = new Field();
+  const games = createGames();
+  const ctx: GameContext = {
+    field,
+    surface,
+    publish: (patch) => room.publishState(patch),
+  };
+
+  let index = -1;
+  let game: Game | null = null;
+
+  function go(next: number): void {
+    const clamped = Math.max(0, Math.min(games.length - 1, next));
+    if (clamped === index) return;
+    game?.exit?.(ctx);
+    index = clamped;
+    game = games[index] as Game;
+    game.enter(ctx);
+    $("gameTitle").textContent = game.title;
+    $("gameBrief").textContent = game.brief;
+    renderMenu();
+  }
+
+  function renderMenu(): void {
+    $("menu").innerHTML = games
+      .map(
+        (g, i) =>
+          `<li class="${i === index ? "on" : ""}"><b>${i + 1}</b> ${g.title}<span>${g.brief}</span></li>`,
+      )
+      .join("");
+  }
 
   // 名單：低頻，只有人加入或離開時才動。
   room.onPlayers((players: Record<string, Player>) => {
@@ -64,7 +104,7 @@ async function main(): Promise<void> {
   });
 
   // 輸入：高頻，這是整個系統的熱路徑。這裡只把向量抄進記憶體，
-  // 實際的移動交給 render 的每幀積分 —— 收到 5 Hz 的輸入也能畫出 60 fps 的動作。
+  // 實際的移動交給每幀積分 —— 收到 20 Hz 的輸入也能畫出 60 fps 的動作。
   room.onInputs((inputs) => {
     const now = performance.now();
     for (const [uid, input] of Object.entries(inputs)) {
@@ -73,14 +113,57 @@ async function main(): Promise<void> {
     }
   });
 
-  room.publishStateNow({ phase: "lobby" }).catch(() => {});
+  go(0);
+
+  let last = performance.now();
+  function frame(now: number): void {
+    const dt = Math.min((now - last) / 1000, 0.1);
+    last = now;
+
+    surface.ctx.fillStyle = "#14141A";
+    surface.ctx.fillRect(0, 0, surface.w, surface.h);
+
+    game?.step(dt, now, ctx);
+    game?.draw(now, ctx);
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
 
   window.addEventListener("keydown", (e) => {
-    if (e.key === "f" || e.key === "F") {
-      void (document.fullscreenElement
-        ? document.exitFullscreen()
-        : document.documentElement.requestFullscreen());
+    // 遊戲先挑走自己要的鍵（換題目、開球…），沒吃掉才輪到主流程。
+    if (game?.key?.(e, ctx)) {
+      e.preventDefault();
+      return;
     }
+
+    switch (e.key) {
+      case "ArrowRight":
+        go(index + 1);
+        break;
+      case "ArrowLeft":
+        go(index - 1);
+        break;
+      case "f":
+      case "F":
+        void (document.fullscreenElement
+          ? document.exitFullscreen()
+          : document.documentElement.requestFullscreen());
+        break;
+      case "Escape":
+        $("menu").classList.toggle("open");
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
+  });
+
+  $("menu").addEventListener("click", (e) => {
+    const li = (e.target as HTMLElement).closest("li");
+    if (!li) return;
+    go([...$("menu").children].indexOf(li));
+    $("menu").classList.remove("open");
   });
 }
 

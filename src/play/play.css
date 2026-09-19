@@ -44,3 +44,33 @@
   transition: transform .05s linear;
 }
 .padHint { margin: 0; font-size: 1rem; opacity: .65; pointer-events: none; }
+
+/* 現在要幹嘛。這一行是後排唯一的資訊來源，所以要大。 */
+.say {
+  margin: .75rem 0 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+  line-height: 1.4;
+  min-height: 1.4em;
+}
+
+/* 選邊站：四個選項貼在搖桿區的四個角，位置對應投影幕的象限。
+   玩家不用抬頭就知道自己往哪邊推是選什麼。 */
+.quads {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template: 1fr 1fr / 1fr 1fr;
+  pointer-events: none;
+}
+.quads[hidden] { display: none; }
+.quads span {
+  display: grid;
+  place-items: center;
+  border: 1px dashed currentColor;
+  opacity: .75;
+  font-size: 1.05rem;
+  font-weight: 900;
+  text-align: center;
+  padding: .25rem;
+}

@@ -25,9 +25,17 @@
     <div class="team" id="teamName">—</div>
     <div class="who" id="myName">—</div>
   </header>
+
+  <!-- 現在要幹嘛。後排看不到投影幕，就看這一行。 -->
+  <p class="say" id="say"></p>
+
   <div class="pad" id="pad">
+    <!-- 選邊站的四個選項，位置對應投影幕的四個象限 -->
+    <div class="quads" id="quads" hidden>
+      <span></span><span></span><span></span><span></span>
+    </div>
     <div class="knob" id="knob"></div>
-    <p class="padHint">按住並移動</p>
+    <p class="padHint" id="padHint">按住並移動</p>
   </div>
 </section>
 

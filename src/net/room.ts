@@ -127,8 +127,23 @@ export async function openRoom(role: Role): Promise<Room> {
     });
   });
 
-  function merge(patch: Partial<RoomState>): RoomState {
-    current = { ...current, ...patch, seq: current.seq + 1, updatedAt: Date.now() };
+  /** 比內容，不看 seq 與 updatedAt —— 它們每次都會變，拿來比就永遠不相等。 */
+  function sameContent(a: RoomState, b: RoomState): boolean {
+    const strip = ({ seq: _s, updatedAt: _u, ...rest }: RoomState) => rest;
+    return JSON.stringify(strip(a)) === JSON.stringify(strip(b));
+  }
+
+  /**
+   * @returns null 代表這個 patch 沒有改變任何東西，不用送。
+   *
+   * 這個檢查是規則 3（state 要小、要低頻）的最後一道防線。遊戲迴圈每幀
+   * 呼叫 publishState 是很自然的寫法，沒有這道檢查的話，就算內容一模一樣
+   * 也會照著 stateHz 一直送 —— 乘以 100 個收件者就是白燒的頻寬。
+   */
+  function merge(patch: Partial<RoomState>): RoomState | null {
+    const next = { ...current, ...patch };
+    if (sameContent(current, next)) return null;
+    current = { ...next, seq: current.seq + 1, updatedAt: Date.now() };
     return current;
   }
 
@@ -161,12 +176,14 @@ export async function openRoom(role: Role): Promise<Room> {
 
     publishState(patch) {
       if (!isHost) return;
-      stateOut.push(merge(patch));
+      const next = merge(patch);
+      if (next) stateOut.push(next);
     },
 
     async publishStateNow(patch) {
       if (!isHost) return;
       const next = merge(patch);
+      if (!next) return;
       await net.setState(next).catch((e) => console.warn("[p100] setState 失敗", e));
     },
 

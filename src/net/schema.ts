@@ -27,6 +27,23 @@ export interface RoomState {
   round: number;
   startedAt: number;
   teams: Partial<Record<TeamId, TeamState>>;
+
+  /**
+   * 手機上顯示的一句話。
+   *
+   * 百人場的大禮堂，後排根本看不清楚投影幕，所以「現在要幹嘛」一定要
+   * 出現在自己手機上。但這個字串會乘以人數變成下行，所以要短。
+   */
+  hint: string;
+
+  /**
+   * 選邊站用的四個選項，其他遊戲留空。
+   *
+   * 這是唯一一個「明知會變大還是放進 state」的欄位：四段短字約 100 bytes，
+   * 而且只有換題目時才變。值得，因為後排的人要能在手機上讀到選項。
+   */
+  options?: string[];
+
   /** 心跳。手機靠它判斷投影幕還活著。 */
   seq: number;
   updatedAt: number;
@@ -54,6 +71,7 @@ export function emptyState(): RoomState {
     round: 0,
     startedAt: 0,
     teams: {},
+    hint: "",
     seq: 0,
     updatedAt: Date.now(),
   };

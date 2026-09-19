@@ -9,6 +9,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "fake": "tsx scripts/fakeplayers.ts",
     "loadtest:ws": "tsx scripts/loadtest-ws.ts",
     "loadtest:firebase": "tsx scripts/loadtest.ts"
   },

@@ -1,30 +1,38 @@
-# Fly.io 設定。app 名字要全球唯一，建立時如果被佔了就換一個，
-# 記得連 repo variable VITE_WS_URL 一起改。
-app = "ntustcdvc-100gamer"
+# fly.toml app configuration file generated for ntustcdvc-100gamer on 2026-09-19T09:51:37+08:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+# 注意：再跑一次 `fly launch` 會把下面的註解洗掉。要保留的話用 `fly deploy`。
 
-# nrt = 東京。從台灣過去約 30–50ms，是所有選項裡最低的。
-# 備選 hkg（香港）。選了之後還是能改，只是要重新部署。
-primary_region = "nrt"
+app = 'ntustcdvc-100gamer'
+
+# nrt = 東京。從台灣過去實測 p95 = 59ms，是所有選項裡最低的。
+# 備選 hkg（香港）。改了要重新部署。
+primary_region = 'nrt'
 
 [build]
-
 [http_service]
   internal_port = 8080
-  force_https = true          # GitHub Pages 是 HTTPS，WebSocket 一定要走 wss://
-  auto_stop_machines = "stop"
+  # GitHub Pages 是 HTTPS，WebSocket 一定要走 wss://，
+  # 不然瀏覽器會擋掉 mixed content。
+  force_https = true
+  auto_stop_machines = 'stop'
   auto_start_machines = true
 
-  # 活動當天設 1，避免第一個掃 QR 的人等冷啟動。
-  # 活動結束改成 0 就幾乎不花錢（只剩 rootfs 約 US$0.15/月）。
+  # 活動當天設 1，避免第一個掃 QR 的人等冷啟動（約 US$2/月的比例計費）。
+  # 活動結束改成 0 就幾乎不花錢，只剩 rootfs 約 US$0.15/月。
   min_machines_running = 1
 
   [http_service.concurrency]
     # 這是「什麼時候該開第二台」的門檻，不是硬上限。
     # 120 人 + 投影幕 + 備用機，留兩倍餘裕。
-    type = "connections"
-    soft_limit = 300
+    type = 'connections'
     hard_limit = 400
+    soft_limit = 300
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "256mb"            # 純中繼，120 條連線用不到這麼多
+  # 純中繼，不做物理運算，120 條連線用不到這麼多。
+  size = 'shared-cpu-1x'
+  memory = '256mb'
+  cpus = 1
+  memory_mb = 256

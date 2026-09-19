@@ -30,3 +30,37 @@ body { background: #14141A; overflow: hidden; }
 .qr-panel .qr svg { display: block; width: 100%; height: auto; }
 .qr-panel .url { margin: .5rem 0 0; font-size: .7rem; color: #666; word-break: break-all; }
 .qr-panel.small .url { display: none; }
+
+.hud .game { margin-top: .6rem; font-size: 1.4em; font-weight: 900; }
+.hud .brief { max-width: 26rem; font-size: .7em; opacity: .55; line-height: 1.5; }
+
+/* Esc 叫出來的關卡選單。現場跳關就靠它。 */
+.menu {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: .75rem;
+  margin: 0;
+  padding: 0 12vw;
+  list-style: none;
+  background: rgba(10, 10, 14, .94);
+}
+.menu.open { display: flex; }
+.menu li {
+  display: grid;
+  grid-template-columns: 3rem 1fr;
+  gap: .25rem 1rem;
+  padding: 1rem 1.25rem;
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, .06);
+  color: #fff;
+  font-size: clamp(1.1rem, 2vw, 1.8rem);
+  font-weight: 900;
+  cursor: pointer;
+}
+.menu li.on { background: rgba(242, 167, 44, .22); }
+.menu li b { grid-row: span 2; font-size: 1.6em; opacity: .5; }
+.menu li span { font-size: .55em; font-weight: 500; opacity: .65; }

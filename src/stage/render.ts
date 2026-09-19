@@ -1,14 +1,19 @@
 /* ============================================================
-   投影幕渲染
+   玩家的世界
 
    用 Canvas，不用 DOM 節點。100+ 個會動的東西如果各自是一個 div，
    瀏覽器會花所有時間在 layout 上，投影幕當場掉幀。
 
    位置只活在這支檔案的記憶體裡，永遠不寫回 state ——
    那會讓總下行乘上人數，是這個架構最貴的錯誤。
+
+   Field 不決定「玩家怎麼動」，那是每個遊戲自己的事：
+   聚沙成塔和選邊站要自由移動，四方拔河則是把搖桿變成隊伍推力、
+   人不動。所以移動與繪製都是外面呼叫進來的。
    ============================================================ */
 
 import { TEAMS, type TeamId } from "../shared/teams";
+import type { Surface } from "./canvas";
 
 export interface Actor {
   name: string;
@@ -21,10 +26,23 @@ export interface Actor {
   vy: number;
   /** 最後一次收到輸入的時間，用來畫「這個人還醒著」 */
   seenAt: number;
+  /** 遊戲自己用的分數。換遊戲時歸零。 */
+  score: number;
+  /** 遊戲自己用的旗標，例如選邊站的「這題答對了」。 */
+  flag: boolean;
 }
 
-const SPEED = 0.35; // 每秒最多移動幾個畫面寬
+/** 多久沒動就當這個人在放空，畫淡一點。 */
 const IDLE_MS = 4000;
+
+export interface TeamPush {
+  /** 隊員搖桿的平均向量。用平均不是總和 —— 人數不均也公平。 */
+  x: number;
+  y: number;
+  /** 隊上有多少人、其中多少人真的在推 */
+  size: number;
+  active: number;
+}
 
 export class Field {
   readonly actors = new Map<string, Actor>();
@@ -38,27 +56,6 @@ export class Field {
    */
   private readonly pending = new Map<string, { vx: number; vy: number; seenAt: number }>();
 
-  private readonly ctx: CanvasRenderingContext2D;
-  private raf = 0;
-  private last = performance.now();
-
-  constructor(private readonly canvas: HTMLCanvasElement) {
-    const ctx = canvas.getContext("2d", { alpha: false });
-    if (!ctx) throw new Error("拿不到 2d context");
-    this.ctx = ctx;
-    this.resize();
-    window.addEventListener("resize", this.resize);
-  }
-
-  private resize = (): void => {
-    // 投影機常常是 1080p 但瀏覽器縮放不是 1，dpr 沒處理的話字會糊。
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    this.canvas.width = Math.round(window.innerWidth * dpr);
-    this.canvas.height = Math.round(window.innerHeight * dpr);
-    this.canvas.style.width = `${window.innerWidth}px`;
-    this.canvas.style.height = `${window.innerHeight}px`;
-  };
-
   upsert(uid: string, name: string, team: TeamId): Actor {
     let a = this.actors.get(uid);
     if (!a) {
@@ -71,6 +68,8 @@ export class Field {
         vx: 0,
         vy: 0,
         seenAt: 0,
+        score: 0,
+        flag: false,
       };
       this.actors.set(uid, a);
       const early = this.pending.get(uid);
@@ -98,12 +97,7 @@ export class Field {
     }
   }
 
-  remove(uid: string): void {
-    this.actors.delete(uid);
-    this.pending.delete(uid);
-  }
-
-  /** 只留下還在名單裡的人，離線的自動消失（靠 onDisconnect 把節點清掉）。 */
+  /** 只留下還在名單裡的人，離線的自動消失。 */
   retain(uids: Set<string>): void {
     for (const uid of [...this.actors.keys()]) {
       if (!uids.has(uid)) this.actors.delete(uid);
@@ -113,45 +107,67 @@ export class Field {
     }
   }
 
-  start(): void {
-    const frame = (now: number): void => {
-      const dt = Math.min((now - this.last) / 1000, 0.1);
-      this.last = now;
-      this.step(dt);
-      this.draw(now);
-      this.raf = requestAnimationFrame(frame);
-    };
-    this.raf = requestAnimationFrame(frame);
-  }
-
-  stop(): void {
-    cancelAnimationFrame(this.raf);
-    window.removeEventListener("resize", this.resize);
-  }
-
-  private step(dt: number): void {
+  /** 換遊戲時把分數與旗標歸零，位置打散。 */
+  reset(scatter = true): void {
     for (const a of this.actors.values()) {
-      a.x = clamp01(a.x + a.vx * SPEED * dt);
-      a.y = clamp01(a.y + a.vy * SPEED * dt);
+      a.score = 0;
+      a.flag = false;
+      if (scatter) {
+        a.x = 0.1 + Math.random() * 0.8;
+        a.y = 0.1 + Math.random() * 0.8;
+      }
     }
   }
 
-  private draw(now: number): void {
-    const { ctx, canvas } = this;
-    const w = canvas.width;
-    const h = canvas.height;
-    const r = Math.max(10, Math.min(w, h) * 0.018);
+  /** 自由移動。speed 是「每秒最多跑幾個畫面寬」。 */
+  stepActors(dt: number, speed = 0.35): void {
+    for (const a of this.actors.values()) {
+      a.x = clamp(a.x + a.vx * speed * dt);
+      a.y = clamp(a.y + a.vy * speed * dt);
+    }
+  }
 
-    ctx.fillStyle = "#14141A";
-    ctx.fillRect(0, 0, w, h);
+  /** 各隊的推力。四方拔河用這個，人不動，搖桿直接變成隊伍的力。 */
+  teamPush(now: number): Record<TeamId, TeamPush> {
+    const out = {} as Record<TeamId, TeamPush>;
+    for (const id of Object.keys(TEAMS) as TeamId[]) {
+      out[id] = { x: 0, y: 0, size: 0, active: 0 };
+    }
+    for (const a of this.actors.values()) {
+      const t = out[a.team];
+      if (!t) continue;
+      t.size++;
+      // 放空的人（超過 IDLE_MS 沒動）不算進推力，也不算進分母，
+      // 不然一隊裡只要有人掛機，整隊的平均就被稀釋掉了。
+      if (now - a.seenAt > IDLE_MS) continue;
+      const mag = Math.hypot(a.vx, a.vy);
+      if (mag < 0.15) continue;
+      t.x += a.vx;
+      t.y += a.vy;
+      t.active++;
+    }
+    for (const t of Object.values(out)) {
+      if (t.active > 0) {
+        t.x /= t.active;
+        t.y /= t.active;
+      }
+    }
+    return out;
+  }
+
+  /** 畫所有玩家。遊戲可以自己決定要不要畫、畫在哪一層。 */
+  drawActors(s: Surface, now: number, opts: { radius?: number; names?: boolean } = {}): void {
+    const { ctx } = s;
+    const r = opts.radius ?? s.unit * 1.5;
+    const names = opts.names ?? true;
 
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
     ctx.font = `700 ${Math.round(r * 0.9)}px system-ui, "Noto Sans TC", sans-serif`;
 
     for (const a of this.actors.values()) {
-      const px = a.x * w;
-      const py = a.y * h;
+      const px = a.x * s.w;
+      const py = a.y * s.h;
       const idle = now - a.seenAt > IDLE_MS;
 
       ctx.globalAlpha = idle ? 0.28 : 1;
@@ -160,14 +176,23 @@ export class Field {
       ctx.arc(px, py, r, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.globalAlpha = idle ? 0.28 : 0.85;
-      ctx.fillStyle = "#FFFFFF";
-      ctx.fillText(a.name, px, py + r * 1.25);
+      // 這一題答對／已經進到目標區的人加一圈白邊，遠遠看得出來
+      if (a.flag) {
+        ctx.strokeStyle = "#FFFFFF";
+        ctx.lineWidth = Math.max(2, r * 0.22);
+        ctx.stroke();
+      }
+
+      if (names) {
+        ctx.globalAlpha = idle ? 0.28 : 0.85;
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillText(a.name, px, py + r * 1.25);
+      }
     }
     ctx.globalAlpha = 1;
   }
 }
 
-function clamp01(v: number): number {
+function clamp(v: number): number {
   return v < 0.02 ? 0.02 : v > 0.98 ? 0.98 : v;
 }
