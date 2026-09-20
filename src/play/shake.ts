@@ -39,7 +39,17 @@ export interface ShakeCounter {
  * 人手往上拔一根蘿蔔大概 3–4 下/秒就是極限，跟甩手的 12 下/秒差很多。
  * 用同一組參數的話，狂甩的人會被當成在狂拉，這一關就變成另一個搖手機。
  */
-const PULL_THRESHOLD = 7;
+/**
+ * 5 而不是 7。
+ *
+ * 7 m/s²（約 0.7g）要很用力地甩才碰得到，但「把手機往上拔」是一個
+ * 比較沉、比較慢的動作，實際大概只有 0.3–0.5g。門檻訂在 7 的結果是
+ * 認真在拉的人一根都拔不到，計數整場停在 0。
+ *
+ * 擋「狂甩的人被當成在拉」主要靠的是冷卻時間（220ms ≈ 每秒最多 4.5 下），
+ * 不是門檻高低，所以降門檻不會讓這一關退化成另一個搖手機。
+ */
+const PULL_THRESHOLD = 5;
 const PULL_COOLDOWN_MS = 220;
 
 export function createShakeCounter(): ShakeCounter {

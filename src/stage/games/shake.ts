@@ -363,8 +363,9 @@ export function createShakeRunGame(): Game {
         g.lineWidth = unit * 0.4;
         g.stroke();
 
-        // 隊名寫在角色旁邊，一眼看得出誰是誰
-        g.fillStyle = "#FFFFFF";
+        // 隊名寫在角色旁邊，一眼看得出誰是誰。
+        // 用 ink 不是白色 —— 風象的角色是白的，白字寫上去整個看不見。
+        g.fillStyle = TEAMS[id].ink;
         g.textAlign = "center";
         g.textBaseline = "middle";
         g.font = `900 ${Math.round(unit * 2)}px system-ui, "Noto Sans TC", sans-serif`;
@@ -543,6 +544,7 @@ export function createShakeCarrotGame(): Game {
       }
 
       const delta = meter.drain(ctx);
+      let gained = false;
       for (const [uid, n] of delta) {
         const actor = ctx.field.actors.get(uid);
         if (!actor) continue;
@@ -552,11 +554,19 @@ export function createShakeCarrotGame(): Game {
         if (pulled > 0) {
           carrots[actor.team] = (carrots[actor.team] ?? 0) + pulled;
           actor.score += pulled;
+          gained = true;
           // 每拔一根噴一顆出來，最多一次噴 3 顆（狂拉的人不要洗版）
           const ti = TEAM_IDS.indexOf(actor.team);
           for (let k = 0; k < Math.min(3, pulled); k++) spawn(ti, now);
         }
       }
+
+      /* 拔到了就把各隊的數字重送一次。
+         原本只在開始和結束 announce，中間 carrots 一直在變卻沒人送出去 ——
+         投影幕是自己從記憶體畫的所以看得到，但手機端的 teams 整場都停在 0，
+         玩家拉了半天看不到自己這一隊有沒有前進。
+         publishState 會過濾掉沒變的欄位，而且節流在 10 Hz，所以這樣不會洗版。 */
+      if (gained) announce(ctx, "拉！把蘿蔔拔起來！");
     },
 
     draw(now, ctx) {

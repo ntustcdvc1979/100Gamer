@@ -25,7 +25,7 @@ import { outlinePath } from "../shared/taiwan";
 import { createJoystick } from "./input";
 import { keepAwake } from "./wakelock";
 import { readPhoto } from "./camera";
-import { requestMotion, watchMotion } from "./flip";
+import { requestMotion, watchMotion, type FlipSupport } from "./flip";
 import { createShakeCounter } from "./shake";
 import type { RoomState } from "../net/schema";
 
@@ -143,11 +143,29 @@ async function main(): Promise<void> {
 
   joinBtn.addEventListener("click", () => {
     if (!picked) return;
-    void join(room, nameInput.value.trim(), picked);
+
+    /* 感測器權限在這裡要，不要另外放一顆「開啟感測器」。
+       iOS 規定 requestPermission() 一定要從使用者的點擊事件裡呼叫，
+       所以一定要有「一次點擊」—— 而「加入遊戲」本來就是每個人都會按的
+       那一下，拿它來要權限，沒有人會漏。
+
+       以前是在遊戲畫面上放一顆按鈕，結果是：那顆按鈕沒人注意到，
+       於是一整場都沒有權限、一則 devicemotion 都收不到，
+       火候達人感應器沒反應、拔蘿蔔的計數一直是 0，都是同一個原因。
+
+       注意是先要權限再送出加入 —— await 之後就不算使用者手勢了，
+       所以這一行不能放到 savePlayer 後面。 */
+    const ask = requestMotion();
+    void join(room, nameInput.value.trim(), picked, ask);
   });
 }
 
-async function join(room: Room, name: string, team: TeamId): Promise<void> {
+async function join(
+  room: Room,
+  name: string,
+  team: TeamId,
+  motionAsk: Promise<FlipSupport>,
+): Promise<void> {
   joinBtn.disabled = true;
   joinHint.textContent = "加入中…";
   try {
@@ -165,10 +183,10 @@ async function join(room: Room, name: string, team: TeamId): Promise<void> {
     return;
   }
 
-  startPlaying(room, name, team);
+  startPlaying(room, name, team, await motionAsk);
 }
 
-function startPlaying(room: Room, name: string, team: TeamId): void {
+function startPlaying(room: Room, name: string, team: TeamId, motionOk: FlipSupport): void {
   const def = TEAMS[team];
   joinScreen.hidden = true;
   playScreen.hidden = false;
@@ -203,6 +221,8 @@ function startPlaying(room: Room, name: string, team: TeamId): void {
   let targetHex = "";
   let armed = false;
   let startedAt = 0;
+  /** 已經備妥過的那一題。見下面 control === "motion" 的說明。 */
+  let motionRoundKey = "";
 
   /* ---------- 感應器狀態（火候達人與搖動都看這一格）---------- */
   const sensorEl = $("sensor");
@@ -211,13 +231,20 @@ function startPlaying(room: Room, name: string, team: TeamId): void {
     sensorEl.classList.toggle("on", live);
     if (live) {
       sensorEl.textContent = "✓ 已偵測到感應器";
-    } else if (control === "shake") {
-      // 搖動那三關沒有按鈕備援，所以提示要指向「開啟感應器」那顆，
-      // 不能還寫「請用按鈕」—— 那顆按鈕已經不在了。
-      sensorEl.textContent = "✗ 沒有感應器，請按下面的「開啟感測器」";
-    } else {
-      sensorEl.textContent = "✗ 沒有偵測到感應器，請用按鈕";
+      armBtn2.hidden = true;
+      return;
     }
+    if (control === "shake") {
+      // 搖動那三關沒有動作鈕可以代替，所以要指一條活路出來
+      sensorEl.textContent =
+        motionOk === "denied"
+          ? "✗ 沒有感測器權限，按下面那顆重新開啟"
+          : "✗ 沒有偵測到感應器，把手機拿在手上試試";
+      armBtn2.hidden = false;
+      return;
+    }
+    // 火候達人：感測器不能用就按動作鈕，那顆一直在，不用另外開什麼
+    sensorEl.textContent = "✗ 沒有偵測到感應器，直接按下面的按鈕";
   }, 500);
 
   /* ---------- 拍照找顏色 ---------- */
@@ -273,7 +300,6 @@ function startPlaying(room: Room, name: string, team: TeamId): void {
 
   /* ---------- 火候達人 ---------- */
   const actBtn = $<HTMLButtonElement>("actBtn");
-  const armBtn = $<HTMLButtonElement>("armBtn");
 
   function sendAct(ms: number, by: "motion" | "tap"): void {
     if (!armed) return;
@@ -284,18 +310,16 @@ function startPlaying(room: Room, name: string, team: TeamId): void {
     void room.sendAction({ k: "flip", ms, by });
   }
 
-  // iOS 一定要從點擊事件裡要權限，而且拒絕之後要重新載入才能再問
-  armBtn.addEventListener("click", () => {
-    void (async () => {
-      const r = await requestMotion();
-      armBtn.hidden = r === "granted";
-      $("motionHint").textContent =
-        r === "granted" ? "感測器已開啟"
-        : r === "denied" ? "沒有感測器權限，用下面的按鈕也可以"
-        : "這支手機沒有感測器，用下面的按鈕";
-    })();
+  /* 搖動關卡的最後手段：權限在加入時就要過了，但 iOS 上有人會手滑按到
+     「不允許」。iOS 的規則是拒絕之後要重新載入頁面才能再問，所以這顆
+     按不出結果時要老實講「重新整理」，不要讓人一直按。 */
+  const armBtn2 = $<HTMLButtonElement>("armBtn2");
+  armBtn2.addEventListener("click", () => {
+    void requestMotion().then((r) => {
+      $("sensor").textContent =
+        r === "granted" ? "✓ 感測器已開啟" : "✗ 要不到權限，請重新整理這一頁再試";
+    });
   });
-  $("armBtn2").addEventListener("click", () => armBtn.click());
 
   actBtn.addEventListener("click", () => {
     if (!armed) return;
@@ -436,12 +460,23 @@ function startPlaying(room: Room, name: string, team: TeamId): void {
       actBtn.textContent = verb + "！";
       $("motionFine").textContent =
         gesture === "flip"
-          ? "手機螢幕朝上放好，時間到翻過來。感測器不能用就按上面的按鈕。"
+          ? "手機螢幕朝上放好，時間到翻過來。感測器不能用就直接按按鈕。"
           : gesture === "lift"
-            ? "手機平放在桌上或手上，時間到整支拿起來。感測器不能用就按上面的按鈕。"
-            : "手機拿好，時間到用力晃幾下。感測器不能用就按上面的按鈕。";
+            ? "手機平放在桌上或手上，時間到整支拿起來。感測器不能用就直接按按鈕。"
+            : "手機拿好，時間到用力晃幾下。感測器不能用就直接按按鈕。";
 
-      if (accepting && !wasAccepting) {
+      /* 備妥的條件是「剛開始」**或**「這一題還沒備過」，兩個都要。
+
+         只看 accepting 的上升緣不夠：斷線重連或中途才進來的人，
+         拿到的 state 前後都是 accepting=true，沒有緣可看 ——
+         那個人整題的按鈕都是灰的，感測器也沒 start，
+         畫面看起來一切正常，就是動了沒反應。
+
+         但只看題號也不行：主持人按「重來」再按「開始」是同一題，
+         題號沒變，那樣就換成所有人都備不起來。 */
+      const roundKey = `${s?.game}:${s?.round}:${s?.targetSeconds}`;
+      if (accepting && (!wasAccepting || roundKey !== motionRoundKey)) {
+        motionRoundKey = roundKey;
         armed = true;
         startedAt = performance.now();
         actBtn.disabled = false;

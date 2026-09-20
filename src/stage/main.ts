@@ -238,16 +238,34 @@ async function main(): Promise<void> {
 
   go(0);
 
+  /** rAF 停住的時候畫面上已經在警告了，恢復時要把字改回來。 */
+  let stalled = false;
+  let last = performance.now();
+
   // 計分表用 setInterval 而不是塞在 rAF 迴圈裡：分頁一被切到背景 rAF 就停，
   // 主控台會整個瞎掉。setInterval 在背景分頁還是會跑（會被降到 1 Hz，
   // 對一張 2 Hz 的計分表完全夠）。
   const scoreTimer = setInterval(() => {
     room.publishScores(scoreRows());
     reportRunning();
+
+    /* 畫面停了就要講出來。
+       rAF 只在分頁真的在繪製時才跑，所以投影幕被縮到最小、被別的視窗
+       完全蓋住、或是螢幕保護程式跳出來的時候，整個遊戲迴圈會停 ——
+       計分、倒數、判定全部凍住，但畫面上最後一幀還留著，看起來很正常。
+       現場的症狀是「大家都在搖，分數卻不動」，而沒有人會想到是這個。
+       setInterval 在背景分頁還是會跑，所以由它來抓。 */
+    const frozen = performance.now() - last > 2000;
+    if (frozen && game?.running?.()) {
+      stalled = true;
+      setStatus(false, "⚠️ 畫面停住了，請把投影幕視窗切回前景");
+    } else if (stalled && !frozen) {
+      stalled = false;
+      setStatus(room.connected, room.connected ? "已連線" : "連線中斷");
+    }
   }, 500);
   window.addEventListener("pagehide", () => clearInterval(scoreTimer));
 
-  let last = performance.now();
   function frame(now: number): void {
     const dt = Math.min((now - last) / 1000, 0.1);
     last = now;

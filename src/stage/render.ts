@@ -60,7 +60,10 @@ export class Field {
    * 那個人會卡在原地直到他下一次動 —— 備用筆電接手時最明顯：
    * 畫面上所有人都不會動，直到每個人各自再推一次搖桿。
    */
-  private readonly pending = new Map<string, { vx: number; vy: number; seenAt: number }>();
+  private readonly pending = new Map<
+    string,
+    { vx: number; vy: number; seenAt: number; shakes?: number }
+  >();
 
   upsert(uid: string, name: string, team: TeamId): Actor {
     let a = this.actors.get(uid);
@@ -86,6 +89,7 @@ export class Field {
         a.vx = early.vx;
         a.vy = early.vy;
         a.seenAt = early.seenAt;
+        if (early.shakes !== undefined) a.shakes = early.shakes;
         this.pending.delete(uid);
       }
     }
@@ -103,7 +107,9 @@ export class Field {
       a.seenAt = seenAt;
       if (shakes !== undefined) a.shakes = shakes;
     } else {
-      this.pending.set(uid, { vx, vy, seenAt });
+      // shakes 也要收著。掉了的話，名單還沒到就先開始拉的人，
+      // 那幾下會憑空消失 —— 而且是在他最用力的開頭那幾秒。
+      this.pending.set(uid, { vx, vy, seenAt, shakes });
     }
   }
 
