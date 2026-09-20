@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>主控台｜百人派對遊戲</title>
+<meta name="robots" content="noindex">
+</head>
+<body>
+
+<section class="login" id="login">
+  <h1>主控台</h1>
+  <p class="lede">用有權限的 Google 帳號登入才能控制投影幕。</p>
+  <div id="gbtn"></div>
+  <p class="note" id="authNote"></p>
+</section>
+
+<main class="panel" id="panel" hidden>
+  <header class="top">
+    <div>
+      <div class="now" id="nowGame">—</div>
+      <div class="nowHint" id="nowHint"></div>
+    </div>
+    <div class="counts">
+      <b id="count">0</b> 人在線・<b id="scored">0</b> 人有分
+    </div>
+  </header>
+
+  <div class="cols">
+    <section class="col">
+      <h2>關卡</h2>
+      <ul class="games" id="games"></ul>
+
+      <h2>控制</h2>
+      <div class="buttons">
+        <button class="ctl primary" id="btnStart">▶ 開始／暫停（T）</button>
+        <button class="ctl" id="btnNext">下一題／下一關 →</button>
+        <button class="ctl" id="btnPrev">← 上一關</button>
+        <button class="ctl" id="btnReset">↺ 重來這一關（R）</button>
+        <button class="ctl board" id="btnBoard">🏆 投影幕顯示排行榜</button>
+        <button class="ctl danger" id="btnZero">總分歸零</button>
+      </div>
+    </section>
+
+    <section class="col wide">
+      <h2>計分表</h2>
+      <table class="scores">
+        <thead>
+          <tr><th>#</th><th>名字</th><th>隊伍</th><th>本關</th><th>總分</th></tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </section>
+  </div>
+</main>
+
+<div class="status" id="status"><span class="dot"></span><span id="statusText">連線中…</span></div>
+
+<script type="module" src="/src/console/main.ts"></script>
+</body>
+</html>

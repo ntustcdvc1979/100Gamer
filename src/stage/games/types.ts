@@ -9,7 +9,7 @@
    即時座標留在 Field 裡就好，投影幕才需要看到。
    ============================================================ */
 
-import type { RoomState } from "../../net/schema";
+import type { PlayerAction, RoomState } from "../../net/schema";
 import type { Surface } from "../canvas";
 import type { Field } from "../render";
 
@@ -35,6 +35,12 @@ export interface Game {
 
   /** 每幀。玩家的點由遊戲自己決定什麼時候畫，才排得出前後層次。 */
   draw(now: number, ctx: GameContext): void;
+
+  /**
+   * 玩家的一次性事件（拍到的顏色、翻面的時間）。
+   * 只有需要的遊戲才實作。
+   */
+  action?(uid: string, action: PlayerAction, ctx: GameContext): void;
 
   /**
    * 主持人按鍵。回傳 true 代表這個鍵被吃掉了，主流程不要再處理。

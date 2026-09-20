@@ -9,7 +9,6 @@
 </head>
 <body class="app">
 
-<!-- 加入畫面 -->
 <section class="screen" id="joinScreen">
   <h1>加入遊戲</h1>
   <p class="lede">輸入一個名字，暱稱就好。</p>
@@ -19,7 +18,6 @@
   <p class="hint" id="joinHint">連線中…</p>
 </section>
 
-<!-- 遊玩畫面：整面是隊伍顏色 -->
 <section class="screen" id="playScreen" hidden>
   <header class="me">
     <div class="team" id="teamName">—</div>
@@ -29,13 +27,40 @@
   <!-- 現在要幹嘛。後排看不到投影幕，就看這一行。 -->
   <p class="say" id="say"></p>
 
+  <!-- 搖桿 -->
   <div class="pad" id="pad">
-    <!-- 選邊站的四個選項，位置對應投影幕的四個象限 -->
     <div class="quads" id="quads" hidden>
       <span></span><span></span><span></span><span></span>
     </div>
     <div class="knob" id="knob"></div>
     <p class="padHint" id="padHint">按住並移動</p>
+  </div>
+
+  <!-- 拍照找顏色。照片不上傳，顏色在這支手機上算完。 -->
+  <div class="pane" id="camPane" hidden>
+    <p class="paneLabel">要找的顏色</p>
+    <div class="swatch big" id="camTarget"></div>
+    <label class="btn shotBtn">
+      📷 拍照
+      <input type="file" id="shot" accept="image/*" capture="environment" hidden>
+    </label>
+    <button class="btn ghost" id="shotBtn" hidden></button>
+    <div class="result">
+      <img id="camPreview" alt="剛剛拍到的畫面" hidden>
+      <div class="swatch" id="camSwatch"></div>
+    </div>
+    <p class="paneHint" id="camHint"></p>
+    <p class="fine">照片只留在你的手機上，不會上傳。</p>
+  </div>
+
+  <!-- 火候達人 -->
+  <div class="pane" id="flipPane" hidden>
+    <p class="paneLabel">幾秒翻面</p>
+    <div class="bigNum" id="flipTarget">—</div>
+    <button class="btn ghost" id="armBtn">開啟翻面偵測</button>
+    <button class="btn" id="flipBtn" disabled>翻面！</button>
+    <p class="paneHint" id="flipHint"></p>
+    <p class="fine">手機螢幕朝上放著，時間到翻過來。感測器不能用就按上面的按鈕。</p>
   </div>
 </section>
 

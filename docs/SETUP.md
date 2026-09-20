@@ -58,6 +58,57 @@ Fly 的[免費方案已經取消](https://fly.io/pricing/)，要綁信用卡。
 
 ---
 
+## 一之二、主控台的 Google 登入
+
+主控台（`console.html`）可以換關卡、看全場分數、叫出排行榜。
+不設限制的話，任何知道網址的人都能把投影幕跳關 —— 百人場一定要鎖。
+
+> **前端檢查 email 是裝飾品。** 打開 devtools 就繞過了。
+> 真正的防線在 `server/index.js` 的 `verifyConsole()`：
+> 它驗 Google 簽發的 ID token 的**簽章**、驗 **audience** 是不是我們的
+> client id、驗 **email_verified**，最後才比對白名單。
+> 所以**伺服器和前端兩邊都要設**，缺一邊就沒有保護。
+
+### 1. 開一個 OAuth Client ID
+
+1. [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → 建立專案
+2. **OAuth 同意畫面** → 使用者類型選「外部」→ 填應用程式名稱與聯絡信箱 → 儲存
+3. **憑證 → 建立憑證 → OAuth 用戶端 ID → 網頁應用程式**
+4. **已授權的 JavaScript 來源**加入（**不是**重新導向 URI）：
+
+   ```
+   https://ntustcdvc1979.github.io
+   http://localhost:5180
+   ```
+
+5. 複製出來的 **用戶端 ID**（長得像 `1234-xxxx.apps.googleusercontent.com`）
+
+### 2. 設給前端
+
+repo → Settings → Secrets and variables → Actions → **Variables**：
+
+| Name | Value |
+|---|---|
+| `VITE_GOOGLE_CLIENT_ID` | 上一步的用戶端 ID |
+
+### 3. 設給伺服器（這一步才是真的防線）
+
+```bash
+cd server
+fly secrets set GOOGLE_CLIENT_ID="1234-xxxx.apps.googleusercontent.com" \
+                ALLOWED_EMAILS="someone@gmail.com,another@gmail.com"
+```
+
+`ALLOWED_EMAILS` 用逗號分隔，可以放多個人。設完 Fly 會自動重啟。
+
+**確認有生效**：打開 `https://<app>.fly.dev`，上面要寫「主控台驗證：開啟」。
+寫「關閉（開發模式）」就是沒設成功，這時候任何人都能控制投影幕。
+
+> 兩個環境變數都沒設時伺服器會放行（本機開發方便），
+> 但啟動時會在 log 印一行明顯的警告。
+
+---
+
 ## 二、讓前端連上伺服器
 
 repo → **Settings → Secrets and variables → Actions → Variables** → New repository variable
@@ -176,11 +227,14 @@ npm run fake -- --clients 100
 
 開場前 10 分鐘：
 
-1. 用手機打開 `https://<app>.fly.dev`，確認伺服器活著。
+1. 用手機打開 `https://<app>.fly.dev`，確認伺服器活著，
+   而且上面寫「主控台驗證：開啟」。
 2. 筆電接投影機，設成**延伸**而不是同步。
 3. 瀏覽器開 `stage.html`，看右下角：**● 已連線**才算成功。
 4. 按 <kbd>F</kbd> 全螢幕。
 5. 自己拿手機掃一次 QR，確認名字有跳到投影幕上、人數有變成 1。
+6. 主持人的手機／平板開 `console.html`，用有權限的 Google 帳號登入，
+   確認看得到計分表、按得動關卡。
 
 ### 一定要準備的
 
@@ -210,8 +264,18 @@ npm run fake -- --clients 100
 場地 AP 常常只撐得住 50–100 台，這是這次不依賴場地 Wi-Fi 的原因。
 
 **想重跑一場（下午還有一梯）**
-網址改成 `stage.html?r=PARTY2`，QR 會跟著變成 `play.html?r=PARTY2`。
-伺服器的房間是獨立的，互不干擾。
+主控台按「總分歸零」就好。名單會跟著現場的人自然換掉（離線的人伺服器會自己清）。
+沒有房號要記、沒有網址要改。
+
+**主控台登入不進去**
+先看 `https://<app>.fly.dev` 有沒有寫「主控台驗證：開啟」。
+有的話就是這個 Google 帳號不在 `ALLOWED_EMAILS` 裡，
+`fly secrets set ALLOWED_EMAILS="..."` 加進去。
+真的來不及就直接在投影幕那台筆電上用鍵盤操作，功能完全一樣。
+
+**投影幕重開了，分數會不會不見**
+不會。伺服器留著最後一張計分表，接手的那台一連上就會把總分接回去。
+（實測過：整個重新載入後排行榜原封不動。）
 
 ---
 

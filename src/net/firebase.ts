@@ -11,7 +11,7 @@
    ============================================================ */
 
 import type { Database, DatabaseReference } from "firebase/database";
-import type { Input, Player, RoomState } from "./schema";
+import type { Input, Player, PlayerAction, RoomState } from "./schema";
 import type { RoomTransport, Unsubscribe } from "./transport";
 
 export interface FirebaseOptions {
@@ -22,10 +22,7 @@ export interface FirebaseOptions {
   appId?: string;
 }
 
-export async function createFirebaseTransport(
-  room: string,
-  options: FirebaseOptions,
-): Promise<RoomTransport> {
+export async function createFirebaseTransport(options: FirebaseOptions): Promise<RoomTransport> {
   const [appMod, authMod, dbMod] = await Promise.all([
     import("firebase/app"),
     import("firebase/auth"),
@@ -52,7 +49,8 @@ export async function createFirebaseTransport(
     serverTimestamp,
   } = dbMod;
 
-  const root = `rooms/${room}`;
+  // 房號已經從前端拿掉了，固定一個節點。
+  const root = "rooms/MAIN";
   const at = (sub: string): DatabaseReference => ref(db, `${root}/${sub}`);
 
   const transport = {
@@ -111,6 +109,21 @@ export async function createFirebaseTransport(
       // 用 push() 會在活動中途把資料庫塞成幾十萬筆垃圾。
       await set(at(`inputs/${uid}`), input);
     },
+
+    async sendAction(action: PlayerAction): Promise<void> {
+      await set(at(`actions/${uid}`), action);
+    },
+
+    onActions(cb: (uid: string, action: PlayerAction) => void): Unsubscribe {
+      return onValue(at("actions"), (snap) => {
+        const all = (snap.val() as Record<string, PlayerAction> | null) ?? {};
+        for (const [id, a] of Object.entries(all)) cb(id, a);
+      });
+    },
+
+    // sendCommand / onCommand / publishScores / onScores 沒有實作：
+    // 主控台需要伺服器端驗身分與點對點轉送，Firebase 這個備援做不到。
+    // room.ts 會在有人想在這個模式下開主控台時給出明確的錯誤。
 
     async takeSeat(): Promise<number> {
       const result = await runTransaction(at("seat"), (current: number | null) => (current ?? 0) + 1);

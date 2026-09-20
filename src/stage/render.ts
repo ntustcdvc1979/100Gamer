@@ -26,10 +26,14 @@ export interface Actor {
   vy: number;
   /** 最後一次收到輸入的時間，用來畫「這個人還醒著」 */
   seenAt: number;
-  /** 遊戲自己用的分數。換遊戲時歸零。 */
+  /** 這一關拿到的分數。換關卡時會被累進 total 然後歸零。 */
   score: number;
+  /** 跨關卡累計的總分。排行榜看的是這個。 */
+  total: number;
   /** 遊戲自己用的旗標，例如選邊站的「這題答對了」。 */
   flag: boolean;
+  /** 遊戲自己指定的顏色，蓋掉隊伍色。拍照找顏色用它顯示每個人拍到什麼。 */
+  tint: string | null;
 }
 
 /** 多久沒動就當這個人在放空，畫淡一點。 */
@@ -69,7 +73,9 @@ export class Field {
         vy: 0,
         seenAt: 0,
         score: 0,
+        total: 0,
         flag: false,
+        tint: null,
       };
       this.actors.set(uid, a);
       const early = this.pending.get(uid);
@@ -107,11 +113,31 @@ export class Field {
     }
   }
 
-  /** 換遊戲時把分數與旗標歸零，位置打散。 */
+  /**
+   * 換遊戲時：把這一關的分數累進總分，然後歸零。
+   * 總分不動 —— 排行榜要跨關卡累計。
+   */
+  bankScores(): void {
+    for (const a of this.actors.values()) {
+      a.total += a.score;
+      a.score = 0;
+    }
+  }
+
+  /** 把所有人的總分歸零。主控台的「重設分數」用。 */
+  clearTotals(): void {
+    for (const a of this.actors.values()) {
+      a.total = 0;
+      a.score = 0;
+    }
+  }
+
+  /** 換遊戲時把這一關的狀態歸零，位置打散。 */
   reset(scatter = true): void {
     for (const a of this.actors.values()) {
       a.score = 0;
       a.flag = false;
+      a.tint = null;
       if (scatter) {
         a.x = 0.1 + Math.random() * 0.8;
         a.y = 0.1 + Math.random() * 0.8;
@@ -171,7 +197,7 @@ export class Field {
       const idle = now - a.seenAt > IDLE_MS;
 
       ctx.globalAlpha = idle ? 0.28 : 1;
-      ctx.fillStyle = TEAMS[a.team].color;
+      ctx.fillStyle = a.tint ?? TEAMS[a.team].color;
       ctx.beginPath();
       ctx.arc(px, py, r, 0, Math.PI * 2);
       ctx.fill();

@@ -2,32 +2,36 @@
    對外的連線 API
 
    自動降級：遊戲伺服器 → Firebase → 本機模式，投影幕永遠跑得動。
-   （沿用 orientation/assets/net.js 驗證過的設計。）
 
    節流也放在這一層，而不是交給呼叫端自律 —— 這樣送出頻率就是架構保證的，
    不是某個人記得要做的事。實際數字依傳輸層而定，見 config/settings.ts 的 RATES。
+
+   沒有房號。一個伺服器一場活動，掃到的 QR 就是入口，
+   少一個現場會出錯的環節。
    ============================================================ */
 
 import { RATES, SETTINGS } from "../config/settings";
 import { throttleLatest } from "../shared/throttle";
 import { createFirebaseTransport, type FirebaseOptions } from "./firebase";
 import { createLocalTransport } from "./local";
-import { createWebsocketTransport } from "./websocket";
-import { emptyState, type Input, type Player, type RoomState } from "./schema";
-import type { RoomTransport, TransportKind, Unsubscribe } from "./transport";
+import { AccessDenied, createWebsocketTransport } from "./websocket";
+import {
+  emptyState,
+  type Command,
+  type Input,
+  type Player,
+  type PlayerAction,
+  type RoomState,
+  type ScoreRow,
+} from "./schema";
+import type { Role, RoomTransport, TransportKind, Unsubscribe } from "./transport";
 
-export type Role = "stage" | "play";
-
-/** 網址上的 ?r= 可以臨時換房號，方便同一天跑兩場不互相干擾。 */
-export function roomCode(): string {
-  const q = new URLSearchParams(location.search).get("r");
-  return (q ?? SETTINGS.room).toUpperCase().replace(/[^A-Z0-9_-]/g, "");
-}
+export { AccessDenied };
+export type { Role };
 
 /** 手機端要掃的網址。 */
 export function playUrl(): string {
-  const base = SETTINGS.playUrl || location.href.replace(/[^/]*$/, "") + "play.html";
-  return `${base}${base.includes("?") ? "&" : "?"}r=${roomCode()}`;
+  return SETTINGS.playUrl || location.href.replace(/[^/]*$/, "") + "play.html";
 }
 
 function readFirebaseConfig(): FirebaseOptions | null {
@@ -50,7 +54,6 @@ function readFirebaseConfig(): FirebaseOptions | null {
 export interface Room {
   readonly kind: TransportKind;
   readonly uid: string;
-  readonly code: string;
   readonly role: Role;
   /** stage 才有意義：有沒有搶到 host。沒搶到就不要寫 state。 */
   readonly isHost: boolean;
@@ -60,6 +63,7 @@ export interface Room {
   onState(cb: (state: RoomState | null) => void): Unsubscribe;
   onPlayers(cb: (players: Record<string, Player>) => void): Unsubscribe;
   onInputs(cb: (inputs: Record<string, Input>) => void): Unsubscribe;
+  onActions(cb: (uid: string, action: PlayerAction) => void): Unsubscribe;
 
   /** stage 用。已節流（見 RATES），可以放心每幀呼叫。 */
   publishState(patch: Partial<RoomState>): void;
@@ -68,6 +72,17 @@ export interface Room {
 
   /** play 用。已節流（見 RATES），可以放心每幀呼叫。 */
   pushInput(v: [number, number]): void;
+  /** play 用。一次性事件，不節流也不覆蓋。 */
+  sendAction(action: PlayerAction): Promise<void>;
+
+  /** console 用。 */
+  sendCommand(cmd: Command): void;
+  /** stage 用。 */
+  onCommand(cb: (cmd: Command) => void): Unsubscribe;
+  /** stage 用。已節流，不會洗版。 */
+  publishScores(rows: ScoreRow[]): void;
+  /** console 用。 */
+  onScores(cb: (rows: ScoreRow[]) => void): Unsubscribe;
 
   savePlayer(patch: Partial<Player>): Promise<void>;
   takeSeat(): Promise<number>;
@@ -75,19 +90,26 @@ export interface Room {
   dispose(): void;
 }
 
+export interface OpenOptions {
+  /** 主控台的 Google ID token。伺服器會驗簽章與 email。 */
+  token?: string;
+}
+
 /**
  * 選傳輸層。順序就是降級順序：
  *
  *   websocket  Fly.io 的遊戲伺服器 —— 主線，搖桿 20 Hz
- *   firebase   備援 —— 伺服器掛了還有得跑，但只有 5 Hz
+ *   firebase   備援 —— 伺服器掛了還有得跑，但只有 5 Hz，而且沒有主控台
  *   local      兩個都沒有 —— 同一台電腦的分頁之間同步，投影幕永遠跑得動
  */
-async function pickTransport(code: string, role: Role): Promise<RoomTransport> {
+async function pickTransport(role: Role, opts: OpenOptions): Promise<RoomTransport> {
   const wsUrl = import.meta.env.VITE_WS_URL;
   if (wsUrl) {
     try {
-      return await createWebsocketTransport(code, wsUrl, role);
+      return await createWebsocketTransport(wsUrl, role, opts.token);
     } catch (e) {
+      // 權限被拒不是連線問題，不該默默降級到一個沒有驗證的模式 —— 直接往上丟。
+      if (e instanceof AccessDenied) throw e;
       console.warn("[p100] 遊戲伺服器連不上，改用 Firebase：", e);
     }
   }
@@ -95,19 +117,24 @@ async function pickTransport(code: string, role: Role): Promise<RoomTransport> {
   const cfg = readFirebaseConfig();
   if (cfg) {
     try {
-      return await createFirebaseTransport(code, cfg);
+      return await createFirebaseTransport(cfg);
     } catch (e) {
       console.warn("[p100] Firebase 也連不上，改用本機模式：", e);
     }
   }
 
-  return createLocalTransport(code);
+  return createLocalTransport();
 }
 
-export async function openRoom(role: Role): Promise<Room> {
-  const code = roomCode();
-  const net = await pickTransport(code, role);
+export async function openRoom(role: Role, opts: OpenOptions = {}): Promise<Room> {
+  const net = await pickTransport(role, opts);
   const rates = RATES[net.kind];
+
+  if (role === "console" && !net.sendCommand) {
+    throw new Error(
+      `主控台不支援 ${net.kind} 模式 —— 它需要伺服器端驗身分。請確認 VITE_WS_URL 有設。`,
+    );
+  }
 
   const isHost = role === "stage" ? await net.claimHost() : false;
   if (role === "stage" && !isHost) {
@@ -126,6 +153,10 @@ export async function openRoom(role: Role): Promise<Room> {
       /* 掉一格輸入無所謂，下一格就補上了 */
     });
   });
+
+  // 計分表比 state 大得多（100 列），但只送給主控台一個人，
+  // 所以 2 Hz 就夠，不需要跟畫面同步。
+  const scoreOut = throttleLatest<ScoreRow[]>(2, (rows) => net.publishScores?.(rows));
 
   /** 比內容，不看 seq 與 updatedAt —— 它們每次都會變，拿來比就永遠不相等。 */
   function sameContent(a: RoomState, b: RoomState): boolean {
@@ -150,7 +181,6 @@ export async function openRoom(role: Role): Promise<Room> {
   const room: Room = {
     kind: net.kind,
     uid: net.uid,
-    code,
     role,
     isHost,
     get connected() {
@@ -161,17 +191,24 @@ export async function openRoom(role: Role): Promise<Room> {
     onState: (cb) => net.onState(cb),
 
     onPlayers(cb) {
-      if (role !== "stage") {
-        throw new Error("只有 stage 可以訂閱 players —— 手機訂閱就是 O(n²) 扇出");
+      if (role === "play") {
+        throw new Error("手機不可以訂閱 players —— 那是 O(n²) 扇出");
       }
       return net.onPlayers(cb);
     },
 
     onInputs(cb) {
       if (role !== "stage") {
-        throw new Error("只有 stage 可以訂閱 inputs —— 手機訂閱就是 O(n²) 扇出");
+        throw new Error("只有 stage 可以訂閱 inputs —— 那是 O(n²) 扇出");
       }
       return net.onInputs(cb);
+    },
+
+    onActions(cb) {
+      if (role !== "stage") {
+        throw new Error("只有 stage 可以訂閱 actions");
+      }
+      return net.onActions(cb);
     },
 
     publishState(patch) {
@@ -191,6 +228,25 @@ export async function openRoom(role: Role): Promise<Room> {
       inputOut.push({ v, t: Date.now() });
     },
 
+    sendAction: (action) => net.sendAction(action),
+
+    sendCommand(cmd) {
+      net.sendCommand?.(cmd);
+    },
+
+    onCommand(cb) {
+      return net.onCommand?.(cb) ?? (() => {});
+    },
+
+    publishScores(rows) {
+      if (!isHost) return;
+      scoreOut.push(rows);
+    },
+
+    onScores(cb) {
+      return net.onScores?.(cb) ?? (() => {});
+    },
+
     savePlayer: (patch) => net.savePlayer(patch),
     takeSeat: () => net.takeSeat(),
     clearRoom: () => net.clearRoom(),
@@ -198,6 +254,7 @@ export async function openRoom(role: Role): Promise<Room> {
     dispose() {
       stateOut.stop();
       inputOut.stop();
+      scoreOut.stop();
     },
   };
 

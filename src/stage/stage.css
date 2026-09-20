@@ -64,3 +64,8 @@ body { background: #14141A; overflow: hidden; }
 .menu li.on { background: rgba(242, 167, 44, .22); }
 .menu li b { grid-row: span 2; font-size: 1.6em; opacity: .5; }
 .menu li span { font-size: .55em; font-weight: 500; opacity: .65; }
+
+/* 排行榜蓋上來的時候，把浮在 canvas 上面的 DOM 收起來。
+   頒獎那一刻畫面上不該還有 QR 和「100 人已加入」。 */
+body.board .hud,
+body.board .qr-panel { opacity: 0; pointer-events: none; transition: opacity .25s; }

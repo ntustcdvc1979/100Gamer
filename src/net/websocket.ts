@@ -13,29 +13,44 @@
      - 投影幕要能重新搶回 host
    ============================================================ */
 
-import type { Input, Player, RoomState } from "./schema";
-import type { RoomTransport, Unsubscribe } from "./transport";
+import type {
+  Command,
+  Input,
+  Player,
+  PlayerAction,
+  RoomState,
+  ScoreRow,
+} from "./schema";
+import type { Role, RoomTransport, Unsubscribe } from "./transport";
 
 type ServerMsg =
-  | { t: "welcome"; uid: string; room: string }
+  | { t: "welcome"; uid: string; email: string | null }
+  | { t: "denied"; why: string }
   | { t: "state"; v: RoomState | null }
   | { t: "players"; v: Record<string, Player> }
   | { t: "inputs"; v: Record<string, Input> }
+  | { t: "action"; uid: string; v: PlayerAction }
+  | { t: "cmd"; v: Command }
+  | { t: "scores"; v: ScoreRow[] }
   | { t: "seat"; n: number }
   | { t: "host"; ok: boolean };
 
+/** 主控台驗不過的時候丟這個，呼叫端才能顯示「這個帳號沒有權限」。 */
+export class AccessDenied extends Error {}
+
 export async function createWebsocketTransport(
-  room: string,
   baseUrl: string,
-  role: "stage" | "play",
+  role: Role,
+  token?: string,
 ): Promise<RoomTransport> {
-  const UID_KEY = `p100:${room}:uid`;
+  const UID_KEY = "p100:uid";
 
   // 開發時同一台電腦要開好幾個玩家，?u= 可以強制分身。
   const forced = new URLSearchParams(location.search).get("u");
   let uid = "";
   try {
-    uid = forced ? `${localStorage.getItem(UID_KEY) ?? ""}-${forced}` : (localStorage.getItem(UID_KEY) ?? "");
+    const stored = localStorage.getItem(UID_KEY) ?? "";
+    uid = forced ? `${stored}-${forced}` : stored;
   } catch {
     /* 無痕模式，每次都是新的人，可接受 */
   }
@@ -48,10 +63,14 @@ export async function createWebsocketTransport(
   const stateCbs: ((s: RoomState | null) => void)[] = [];
   const playerCbs: ((p: Record<string, Player>) => void)[] = [];
   const inputCbs: ((i: Record<string, Input>) => void)[] = [];
+  const actionCbs: ((uid: string, a: PlayerAction) => void)[] = [];
+  const commandCbs: ((c: Command) => void)[] = [];
+  const scoreCbs: ((r: ScoreRow[]) => void)[] = [];
   const connCbs: ((ok: boolean) => void)[] = [];
 
   let lastState: RoomState | null = null;
   let lastPlayers: Record<string, Player> = {};
+  let lastScores: ScoreRow[] = [];
 
   // 重連之後要補回去的東西
   let myPlayer: Partial<Player> | null = null;
@@ -62,9 +81,9 @@ export async function createWebsocketTransport(
 
   function url(): string {
     const u = new URL(baseUrl);
-    u.searchParams.set("r", room);
     u.searchParams.set("role", role);
     if (uid) u.searchParams.set("uid", uid);
+    if (token) u.searchParams.set("token", token);
     return u.toString();
   }
 
@@ -78,6 +97,8 @@ export async function createWebsocketTransport(
       }
     }
   }
+
+  let denied: string | null = null;
 
   function handle(msg: ServerMsg): void {
     switch (msg.t) {
@@ -94,6 +115,11 @@ export async function createWebsocketTransport(
         if (wantHost) send({ t: "claimHost" });
         break;
 
+      case "denied":
+        denied = msg.why;
+        closed = true; // 不要重連，重連一樣會被拒絕
+        break;
+
       case "state":
         lastState = msg.v;
         for (const cb of stateCbs) cb(msg.v);
@@ -105,8 +131,21 @@ export async function createWebsocketTransport(
         break;
 
       case "inputs":
-        // 伺服器已經攤平成 20 Hz 的批次，這裡拿到的是「這一輪動過的人」
+        // 伺服器已經攤平成批次，這裡拿到的是「這一輪動過的人」
         for (const cb of inputCbs) cb(msg.v ?? {});
+        break;
+
+      case "action":
+        for (const cb of actionCbs) cb(msg.uid, msg.v);
+        break;
+
+      case "cmd":
+        for (const cb of commandCbs) cb(msg.v);
+        break;
+
+      case "scores":
+        lastScores = msg.v ?? [];
+        for (const cb of scoreCbs) cb(lastScores);
         break;
 
       case "seat":
@@ -151,6 +190,10 @@ export async function createWebsocketTransport(
 
       s.onclose = () => {
         fire(false);
+        if (denied) {
+          reject(new AccessDenied(denied));
+          return;
+        }
         if (closed) return;
         // 退避重連。上限 5 秒 —— 活動進行中不能讓人等太久，
         // 但也不能一直重打把伺服器壓垮。
@@ -164,6 +207,12 @@ export async function createWebsocketTransport(
   }
 
   await connect();
+
+  // 伺服器拒絕的話，welcome 不會來但 close 會來。等一小段確認。
+  if (role === "console") {
+    await new Promise((r) => setTimeout(r, 150));
+    if (denied) throw new AccessDenied(denied);
+  }
 
   function sub<T>(list: T[], cb: T): Unsubscribe {
     list.push(cb);
@@ -229,6 +278,32 @@ export async function createWebsocketTransport(
 
     async sendInput(input) {
       send({ t: "input", v: input });
+    },
+
+    async sendAction(action) {
+      send({ t: "action", v: action });
+    },
+
+    onActions(cb) {
+      return sub(actionCbs, cb);
+    },
+
+    sendCommand(cmd) {
+      send({ t: "cmd", v: cmd });
+    },
+
+    onCommand(cb) {
+      return sub(commandCbs, cb);
+    },
+
+    publishScores(rows) {
+      send({ t: "scores", v: rows });
+    },
+
+    onScores(cb) {
+      const un = sub(scoreCbs, cb);
+      if (lastScores.length) cb(lastScores);
+      return un;
     },
 
     takeSeat() {

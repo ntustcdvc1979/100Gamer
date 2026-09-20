@@ -9,13 +9,19 @@
    這個介面就是當初留的逃生門，而且已經用過一次了 ——
    換傳輸層時 stage/ 和 play/ 一行都沒有改。請維持這個性質：
    遊戲程式只能依賴這個介面，不准直接 import firebase 或 WebSocket。
+
+   有幾個方法是選用的（? 結尾）：主控台需要伺服器端的身分驗證與
+   點對點轉送，那是 Firebase 備援做不到的事。room.ts 會在用不到的
+   傳輸層上給出明確的錯誤，而不是安靜地失效。
    ============================================================ */
 
-import type { Input, Player, RoomState } from "./schema";
+import type { Command, Input, Player, PlayerAction, RoomState, ScoreRow } from "./schema";
 
 export type Unsubscribe = () => void;
 
 export type TransportKind = "firebase" | "websocket" | "local";
+
+export type Role = "stage" | "play" | "console";
 
 export interface RoomTransport {
   readonly kind: TransportKind;
@@ -60,6 +66,33 @@ export interface RoomTransport {
 
   /** 只有 play 該呼叫。用覆蓋而不是累加，漏掉的中間值沒人在乎。 */
   sendInput(input: Input): Promise<void>;
+
+  /* ---- actions：play 的一次性事件，只有 stage 讀 ---- */
+
+  /**
+   * 拍到的顏色、翻面的時間這一類。
+   *
+   * 跟 input 分開是因為這些**不能掉**：搖桿漏一格沒人在乎，
+   * 但「我拍好了」漏掉就是這個人這一題沒分。所以不做攤平覆蓋。
+   */
+  sendAction(action: PlayerAction): Promise<void>;
+
+  /** 只有 stage 該呼叫。 */
+  onActions(cb: (uid: string, action: PlayerAction) => void): Unsubscribe;
+
+  /* ---- 主控台：需要伺服器端驗身分，只有 websocket / local 支援 ---- */
+
+  /** console → stage。 */
+  sendCommand?(cmd: Command): void;
+
+  /** 只有 stage 該呼叫。 */
+  onCommand?(cb: (cmd: Command) => void): Unsubscribe;
+
+  /** stage → console。整張計分表，不會廣播給手機。 */
+  publishScores?(rows: ScoreRow[]): void;
+
+  /** 只有 console 該呼叫。 */
+  onScores?(cb: (rows: ScoreRow[]) => void): Unsubscribe;
 
   /* ---- 其他 ---- */
 

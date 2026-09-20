@@ -36,6 +36,7 @@ jobs:
       - name: Write runtime config
         env:
           WS_URL: ${{ vars.VITE_WS_URL }}
+          GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
           FIREBASE_CONFIG: ${{ secrets.FIREBASE_CONFIG }}
         run: |
           : > .env.production
@@ -44,6 +45,12 @@ jobs:
             echo "遊戲伺服器：$WS_URL"
           else
             echo "::warning::沒有 VITE_WS_URL variable，不會連遊戲伺服器"
+          fi
+          if [ -n "$GOOGLE_CLIENT_ID" ]; then
+            printf 'VITE_GOOGLE_CLIENT_ID=%s\n' "$GOOGLE_CLIENT_ID" >> .env.production
+            echo "主控台登入：已設定"
+          else
+            echo "::warning::沒有 VITE_GOOGLE_CLIENT_ID，主控台任何人都能開"
           fi
           if [ -n "$FIREBASE_CONFIG" ]; then
             printf 'VITE_FIREBASE_CONFIG=%s\n' "$FIREBASE_CONFIG" >> .env.production

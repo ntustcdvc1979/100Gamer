@@ -13,6 +13,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         index: "index.html",
+        console: "console.html",
         stage: "stage.html",
         play: "play.html",
       },

@@ -17,6 +17,13 @@
     <a class="btn" href="stage.html">開啟投影幕 →</a>
   </div>
 
+  <div class="card">
+    <h2>🎛️ 主控台（主持人用）</h2>
+    <p>手機或平板開這一頁，用有權限的 Google 帳號登入，就能換關卡、看分數、
+       叫出排行榜。主持人不用站在筆電旁邊。</p>
+    <a class="btn" href="console.html">開啟主控台 →</a>
+  </div>
+
   <div class="card qrbox">
     <h2>📱 玩家入口</h2>
     <div class="qr" id="qr"></div>
@@ -27,7 +34,8 @@
   <div class="card">
     <h2>✅ 活動前要做的事</h2>
     <ol>
-      <li>照 <a href="docs/SETUP.md">docs/SETUP.md</a> 建 Firebase、<b>升級 Blaze</b>、設預算警示。</li>
+      <li>照 <a href="docs/SETUP.md">docs/SETUP.md</a> 部署 Fly.io 遊戲伺服器，設好 <code>VITE_WS_URL</code>。</li>
+      <li>設 Google 登入（<code>GOOGLE_CLIENT_ID</code> 與 <code>ALLOWED_EMAILS</code>），不然主控台任何人都能開。</li>
       <li>投影幕先開一次，確認右下角是「● 已連線」而不是「本機模式」。</li>
       <li>上面的 QR <b>印 6 張分散貼</b>——100 人擠一張掃不到。</li>
       <li>準備備用筆電與筆電的行動網路熱點。</li>
