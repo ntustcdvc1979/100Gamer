@@ -51,9 +51,40 @@ const HEARTBEAT_MS = 30000;
    啟動時會印一行明顯的警告。正式環境一定要設。
    ============================================================ */
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? "";
+
+/**
+ * 把 email 正規化再比對。
+ *
+ * 三個現場一定會踩到的地雷：
+ *
+ *   1. 引號跑進值裡。`fly secrets set ALLOWED_EMAILS="a@gmail.com"` 在某些
+ *      shell 下會連引號一起存進去，比對就永遠不會中。
+ *   2. Gmail 忽略點。a.b@gmail.com 和 ab@gmail.com 是**同一個 Google 帳號**，
+ *      但字串不一樣。名單裡打了點、登入的帳號沒點（或反過來）就對不上。
+ *   3. Gmail 的 +標籤。a+party@gmail.com 也是同一個帳號。
+ *
+ * 只對 gmail / googlemail 做點與 +標籤的處理 —— 其他網域的點是有意義的，
+ * 亂拿掉會把不同的人當成同一個。
+ */
+function canonicalEmail(raw) {
+  const cleaned = String(raw ?? "")
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .toLowerCase();
+  const at = cleaned.lastIndexOf("@");
+  if (at < 0) return cleaned;
+  let local = cleaned.slice(0, at);
+  const domain = cleaned.slice(at + 1);
+  if (domain === "gmail.com" || domain === "googlemail.com") {
+    local = local.split("+")[0].replace(/\./g, "");
+    return `${local}@gmail.com`;
+  }
+  return `${local}@${domain}`;
+}
+
 const ALLOWED_EMAILS = (process.env.ALLOWED_EMAILS ?? "")
   .split(",")
-  .map((s) => s.trim().toLowerCase())
+  .map(canonicalEmail)
   .filter(Boolean);
 
 const oauth = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
@@ -78,13 +109,22 @@ async function verifyConsole(idToken) {
   try {
     const ticket = await oauth.verifyIdToken({ idToken, audience: GOOGLE_CLIENT_ID });
     const payload = ticket.getPayload();
-    const email = (payload?.email ?? "").toLowerCase();
+    const shown = (payload?.email ?? "").toLowerCase();
+    const email = canonicalEmail(shown);
     // email_verified 一定要看：沒驗證過的 email 是可以偽造的
     if (!payload?.email_verified) return { ok: false, why: "這個 Google 帳號的信箱沒有驗證過" };
     if (!ALLOWED_EMAILS.includes(email)) {
-      return { ok: false, why: `${email} 不在主控台的白名單裡` };
+      // 兩邊都印出來。只印被拒的那一個，管理員還是不知道名單裡到底是什麼，
+      // 只能一直猜。這一行在 `fly logs` 看得到。
+      console.warn(`[auth] 拒絕 ${shown}（正規化後 ${email}）｜名單：${ALLOWED_EMAILS.join(", ")}`);
+      return {
+        ok: false,
+        why:
+          `${shown} 不在主控台的白名單裡。` +
+          `請用這個帳號重設：fly secrets set ALLOWED_EMAILS="${shown}"`,
+      };
     }
-    return { ok: true, email };
+    return { ok: true, email: shown };
   } catch (e) {
     console.warn("[auth] token 驗不過：", e?.message ?? e);
     return { ok: false, why: "Google 登入憑證驗不過（client id 可能對不上）" };

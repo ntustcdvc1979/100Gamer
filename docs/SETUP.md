@@ -101,6 +101,21 @@ fly secrets set GOOGLE_CLIENT_ID="1234-xxxx.apps.googleusercontent.com" \
 
 `ALLOWED_EMAILS` 用逗號分隔，可以放多個人。設完 Fly 會自動重啟。
 
+**填錯了怎麼查**：登入被拒的時候，畫面上會直接寫出你實際登入的 email
+和要跑的指令，照著複製就好。伺服器那邊 `fly logs` 也會同時印出
+「被拒的帳號」和「名單裡有誰」——只看被拒的那一個，永遠猜不到名單裡打錯了什麼。
+
+比對前會先正規化，所以這些都算同一個人，不用擔心：
+
+| 你填的 | 實際登入的 |
+|---|---|
+| `Damon.Cho510@Gmail.com` | `damoncho510@gmail.com` |
+| `damoncho510+party@gmail.com` | `damoncho510@gmail.com` |
+| `"damoncho510@gmail.com"`（引號跑進去） | `damoncho510@gmail.com` |
+
+Gmail 本來就忽略點和 `+標籤`，同一個 Google 帳號。
+其他網域（例如學校信箱）的點是有意義的，不會被拿掉。
+
 **確認有生效**：打開 `https://<app>.fly.dev`，上面要寫「主控台驗證：開啟」。
 寫「關閉（開發模式）」就是沒設成功，這時候任何人都能控制投影幕。
 
