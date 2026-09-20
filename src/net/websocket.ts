@@ -65,6 +65,17 @@ export async function createWebsocketTransport(
   const inputCbs: ((i: Record<string, Input>) => void)[] = [];
   const actionCbs: ((uid: string, a: PlayerAction) => void)[] = [];
   const commandCbs: ((c: Command) => void)[] = [];
+  /**
+   * 還沒有人訂閱時收到的指令。
+   *
+   * 伺服器在投影幕一連上就會把「上一場編好的地理題庫」用 cmd 送過來，
+   * 但那時候 stage/main.ts 還在跑 openRoom 之後的初始化，onCommand 根本
+   * 還沒註冊 —— 指令就這樣被丟掉，題目退回程式碼裡的預設值。
+   *
+   * state / players / scores 都是「訂閱時重播最後一筆」，指令沒有那個性質
+   * （它是一次性的），所以改成先收著，第一個訂閱者出現時再一次倒給它。
+   */
+  let earlyCmds: Command[] = [];
   const scoreCbs: ((r: ScoreRow[]) => void)[] = [];
   const pinCbs: ((p: [number, number][]) => void)[] = [];
   const connCbs: ((ok: boolean) => void)[] = [];
@@ -154,7 +165,8 @@ export async function createWebsocketTransport(
         break;
 
       case "cmd":
-        for (const cb of commandCbs) cb(msg.v);
+        if (commandCbs.length === 0) earlyCmds.push(msg.v);
+        else for (const cb of commandCbs) cb(msg.v);
         break;
 
       case "scores":
@@ -362,7 +374,13 @@ export async function createWebsocketTransport(
     },
 
     onCommand(cb) {
-      return sub(commandCbs, cb);
+      const un = sub(commandCbs, cb);
+      if (earlyCmds.length > 0) {
+        const queued = earlyCmds;
+        earlyCmds = [];
+        for (const c of queued) cb(c);
+      }
+      return un;
     },
 
     publishScores(rows) {

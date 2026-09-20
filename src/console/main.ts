@@ -317,12 +317,17 @@ const GEO_KEY = "p100:geo";
 const PHOTO_MAX = 800;
 
 function setupGeoEditor(room: Room): void {
+  /** 有沒有存過（主持人真的編輯過）。沒編輯過就不用推，預設值本來就在程式裡。 */
+  let stored = false;
   let rows: GeoRow[] = load();
 
   function load(): GeoRow[] {
     try {
       const raw = localStorage.getItem(GEO_KEY);
-      if (raw) return JSON.parse(raw) as GeoRow[];
+      if (raw) {
+        stored = true;
+        return JSON.parse(raw) as GeoRow[];
+      }
     } catch {
       /* 壞掉就用預設的 */
     }
@@ -330,6 +335,7 @@ function setupGeoEditor(room: Room): void {
   }
 
   function save(): void {
+    stored = true;
     try {
       localStorage.setItem(GEO_KEY, JSON.stringify(rows));
     } catch {
@@ -426,6 +432,19 @@ function setupGeoEditor(room: Room): void {
   });
 
   render();
+
+  /* 主控台連上就把自己存的題庫推上去。
+     伺服器重啟時它自己的記憶會清空，主控台的 localStorage 是更深一層的備份。
+     投影幕那邊「內容一樣就不動」，所以這個自動推送不會打斷進行中的那一題。 */
+  if (stored) {
+    room.sendCommand({
+      k: "geoList",
+      list: rows.map((r) => ({ name: r.name, hint: r.hint, lon: r.lon, lat: r.lat })),
+    });
+    rows.forEach((r, i) => {
+      if (r.photo) room.sendCommand({ k: "geoPhoto", index: i, dataUri: r.photo });
+    });
+  }
 }
 
 /** 壓縮照片。長邊 PHOTO_MAX、JPEG 0.75。 */

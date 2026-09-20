@@ -272,6 +272,24 @@ export function createGeoGame(): Game {
      * 編輯到一半還停在舊題目的話，畫面和資料會對不起來。
      */
     setGeoList(list, ctx) {
+      // 內容一模一樣就什麼都不做。
+      //
+      // 主控台重連時會自動把自己存的題庫推上來（伺服器重啟的自我修復），
+      // 不擋掉的話，主持人一重整主控台就會把進行中的那一題打回第一題。
+      const same =
+        list.length === items.length &&
+        list.every((it, i) => {
+          const cur = items[i];
+          return (
+            cur !== undefined &&
+            it.name === cur.name &&
+            (it.hint ?? "") === (cur.hint ?? "") &&
+            it.lon === cur.lon &&
+            it.lat === cur.lat
+          );
+        });
+      if (same) return;
+
       items = list.map((it) => ({ ...it }));
       if (items.length === 0) items = GEO_QUESTIONS.map((q) => ({ ...q }));
       photos.clear();

@@ -120,13 +120,29 @@
 
 /* 選隊。人數要看得到，不然一定有一隊爆滿。 */
 .teams { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; margin: .5rem 0; }
+/* 選隊按鈕。
+   顏色不能是唯一的線索 —— 風象是白的，白邊白底的按鈕根本看不見，
+   選中之後底色也還是白的，跟沒選一模一樣（看起來就像「選不了」）。
+   所以邊框用 --b（淺色隊改成灰的），選中狀態再加一圈深色外框和一個 ✓，
+   不管哪一隊都看得出來自己選了什麼。 */
 .teamBtn {
+  position: relative;
   display: flex; flex-direction: column; align-items: center; gap: .2rem;
-  padding: .9rem .5rem; border: 3px solid var(--c); border-radius: 1rem;
+  padding: .9rem .5rem; border: 3px solid var(--b); border-radius: 1rem;
   background: var(--card); color: var(--t); font: inherit; font-weight: 900;
   font-size: 1.1rem; cursor: pointer;
 }
-.teamBtn.on { background: var(--c); color: var(--k); }
+.teamBtn.on {
+  background: var(--c);
+  color: var(--k);
+  border-color: var(--k);
+  box-shadow: 0 0 0 3px var(--ink);
+}
+.teamBtn.on::after {
+  content: "✓";
+  position: absolute; top: .3rem; right: .5rem;
+  font-size: .95rem; line-height: 1;
+}
 .teamBtn .tc { font-size: .8rem; font-weight: 700; opacity: .75; }
 
 /* 感應器狀態。火候達人和搖手機都靠它，開始前就要知道自己能不能用。 */

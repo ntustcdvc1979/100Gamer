@@ -40,6 +40,16 @@ const ROSTER_HZ = Number(process.env.ROSTER_HZ ?? 4);
 /* 多久沒有 pong 就當對方斷了。手機鎖屏、走進電梯都會觸發。 */
 const HEARTBEAT_MS = 30000;
 
+/* 房間空了之後還留多久才真的丟掉。
+
+   原本是「一個人都沒有就立刻刪」，那會毀掉整個接手機制：
+   投影幕重整的那一兩秒，如果剛好主控台也關著、手機還沒進來，
+   房間就被刪了 —— 連同分數和主持人編好的地理題庫。
+   而那正是接手要處理的情境本身。
+
+   十分鐘夠涵蓋任何一次重整、換筆電、或中場休息。 */
+const ROOM_TTL_MS = 10 * 60 * 1000;
+
 /* ============================================================
    主控台的身分驗證
 
@@ -149,6 +159,13 @@ class Room {
     this.banned = new Set();
     /* 最後一張計分表。主控台中途連進來要馬上看得到。 */
     this.scores = [];
+    /* 主控台改過的地理題庫與照片。
+       投影幕重開（或備用筆電接手）時要把這些補回去 ——
+       不然主持人辛苦編好的題目會整個退回程式碼裡的預設值。
+       跟分數一樣的道理：伺服器是唯一活過客戶端重整的地方。 */
+    this.geoList = null;
+    this.geoPhotos = new Map();
+    this.ttlTimer = null;
 
     this.flushTimer = setInterval(() => this.flushInputs(), 1000 / FLUSH_HZ);
     this.rosterTimer = setInterval(() => this.flushRoster(), 1000 / ROSTER_HZ);
@@ -161,6 +178,26 @@ class Room {
   close() {
     clearInterval(this.flushTimer);
     clearInterval(this.rosterTimer);
+    if (this.ttlTimer) clearTimeout(this.ttlTimer);
+  }
+
+  /** 空了就排一個延後刪除，有人回來就取消。 */
+  scheduleCleanup(remove) {
+    if (this.ttlTimer) clearTimeout(this.ttlTimer);
+    this.ttlTimer = setTimeout(() => {
+      if (!this.empty) return;
+      console.log("[room] " + this.code + " 閒置逾時，清掉");
+      this.close();
+      remove();
+    }, ROOM_TTL_MS);
+  }
+
+  /** 有人連進來就把延後刪除取消掉。 */
+  keepAlive() {
+    if (this.ttlTimer) {
+      clearTimeout(this.ttlTimer);
+      this.ttlTimer = null;
+    }
   }
 
   send(client, msg) {
@@ -228,6 +265,7 @@ function roomFor(code) {
     r = new Room(code);
     rooms.set(code, r);
   }
+  r.keepAlive();
   return r;
 }
 
@@ -330,6 +368,14 @@ wss.on("connection", (sock, req) => {
          計分表，接手的那台可以把總分接回去 —— 不然備用筆電救得了畫面，
          救不了分數。只在連線時送這一次，不會跟 stage 自己送上來的互相回聲。 */
       if (room.scores.length) room.send(client, { t: "scores", v: room.scores });
+      /* 地理題庫與照片同理 —— 主持人編好的東西不該因為投影幕重整就沒了。
+         先送題庫再送照片：setGeoList 會把照片清掉，順序反了就白送。 */
+      if (room.geoList) {
+        room.send(client, { t: "cmd", v: { k: "geoList", list: room.geoList } });
+        for (const [index, dataUri] of room.geoPhotos) {
+          room.send(client, { t: "cmd", v: { k: "geoPhoto", index, dataUri } });
+        }
+      }
     }
     if (role === "console") {
       room.send(client, { t: "scores", v: room.scores });
@@ -396,6 +442,16 @@ wss.on("connection", (sock, req) => {
             return;
           }
 
+          /* 記住題庫與照片，投影幕重開時要補回去。
+             伺服器只是存著轉發，不解讀內容。 */
+          if (m.v?.k === "geoList") {
+            room.geoList = m.v.list ?? [];
+            room.geoPhotos.clear();
+          } else if (m.v?.k === "geoPhoto" && typeof m.v.index === "number") {
+            if (m.v.dataUri) room.geoPhotos.set(m.v.index, m.v.dataUri);
+            else room.geoPhotos.delete(m.v.index);
+          }
+
           room.toRole("stage", { t: "cmd", v: m.v });
           break;
         }
@@ -429,6 +485,8 @@ wss.on("connection", (sock, req) => {
           room.state = null;
           room.scores = [];
           room.banned.clear();
+          room.geoList = null;
+          room.geoPhotos.clear();
               room.toRole("stage", { t: "players", v: {} });
           room.broadcast({ t: "state", v: null });
           break;
@@ -439,10 +497,7 @@ wss.on("connection", (sock, req) => {
 
   sock.on("close", () => {
     room.drop(uid, sock);
-    if (room.empty) {
-      room.close();
-      rooms.delete(code);
-    }
+    if (room.empty) room.scheduleCleanup(() => rooms.delete(code));
   });
 
   sock.on("error", () => sock.terminate());
