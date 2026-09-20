@@ -64,3 +64,32 @@ h2 { margin: 0 0 .6rem; font-size: .8rem; font-weight: 900; letter-spacing: .08e
 .scores .total { font-weight: 900; }
 .scores .empty { text-align: center; color: var(--ink-soft); padding: 2rem; }
 .chip { display: inline-block; padding: .1rem .55rem; border-radius: 999px; color: #fff; font-size: .78rem; font-weight: 800; }
+
+/* 沒有驗證時的常駐警告。這一條不該被關掉，也不該只閃一下。 */
+.insecure {
+  margin: 0 0 1rem;
+  padding: .75rem 1rem;
+  border-radius: .8rem;
+  background: #FFF1EC;
+  border: 2px solid #F0C9BE;
+  color: #8C3A1E;
+  font-size: .9rem;
+  line-height: 1.6;
+}
+.insecure[hidden] { display: none; }
+
+/* 前端沒設 client id 時，登入頁直接寫出要補什麼 */
+.setup {
+  text-align: left;
+  font-size: .9rem;
+  line-height: 1.7;
+  color: var(--ink);
+}
+.setup b { display: block; margin-bottom: .5rem; color: var(--warn); font-size: 1rem; }
+.setup p { margin: .5rem 0; color: var(--ink-soft); }
+.setup ol { margin: .5rem 0; padding-left: 1.2rem; }
+.setup li { margin-bottom: .4rem; }
+.setup code {
+  padding: .1rem .3rem; border-radius: .25rem;
+  background: #F4EFE0; font-size: .92em;
+}

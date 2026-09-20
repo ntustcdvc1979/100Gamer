@@ -59,20 +59,35 @@ const ALLOWED_EMAILS = (process.env.ALLOWED_EMAILS ?? "")
 const oauth = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 const authEnabled = Boolean(oauth && ALLOWED_EMAILS.length > 0);
 
-/** @returns 通過的話回 email，不通過回 null */
+/**
+ * @returns { ok: true, email } 或 { ok: false, why }
+ *
+ * why 要分得出「根本沒帶 token」和「帳號不在名單」——
+ * 前者代表那個網站沒設 VITE_GOOGLE_CLIENT_ID（登入按鈕根本沒出現），
+ * 後者才是真的權限問題。兩種的處理方式完全不同，
+ * 混在一起的話現場會對著「你沒有權限」找不到登入按鈕。
+ */
 async function verifyConsole(idToken) {
-  if (!authEnabled) return "dev@localhost";
-  if (!idToken) return null;
+  if (!authEnabled) return { ok: true, email: "dev@localhost" };
+  if (!idToken) {
+    return {
+      ok: false,
+      why: "這個網站沒有帶 Google 登入資訊（前端少了 VITE_GOOGLE_CLIENT_ID）",
+    };
+  }
   try {
     const ticket = await oauth.verifyIdToken({ idToken, audience: GOOGLE_CLIENT_ID });
     const payload = ticket.getPayload();
     const email = (payload?.email ?? "").toLowerCase();
     // email_verified 一定要看：沒驗證過的 email 是可以偽造的
-    if (!payload?.email_verified || !ALLOWED_EMAILS.includes(email)) return null;
-    return email;
+    if (!payload?.email_verified) return { ok: false, why: "這個 Google 帳號的信箱沒有驗證過" };
+    if (!ALLOWED_EMAILS.includes(email)) {
+      return { ok: false, why: `${email} 不在主控台的白名單裡` };
+    }
+    return { ok: true, email };
   } catch (e) {
     console.warn("[auth] token 驗不過：", e?.message ?? e);
-    return null;
+    return { ok: false, why: "Google 登入憑證驗不過（client id 可能對不上）" };
   }
 }
 
@@ -167,7 +182,12 @@ function roomFor(code) {
 
 const server = createServer((req, res) => {
   if (req.url === "/health") {
-    res.writeHead(200, { "content-type": "application/json" });
+    // 前端在別的網域（GitHub Pages），要能問到「這台有沒有開驗證」。
+    // 只吐 {ok, rooms, auth} 三個欄位，開放讀沒有風險。
+    res.writeHead(200, {
+      "content-type": "application/json",
+      "access-control-allow-origin": "*",
+    });
     res.end(JSON.stringify({ ok: true, rooms: rooms.size, auth: authEnabled }));
     return;
   }
@@ -209,13 +229,13 @@ wss.on("connection", (sock, req) => {
   /* 主控台要先驗過才收進房間，驗不過直接關掉。 */
   const admit = async () => {
     if (role === "console") {
-      const email = await verifyConsole(url.searchParams.get("token"));
-      if (!email) {
-        sock.send(JSON.stringify({ t: "denied", why: "這個帳號沒有主控台權限" }));
+      const verdict = await verifyConsole(url.searchParams.get("token"));
+      if (!verdict.ok) {
+        sock.send(JSON.stringify({ t: "denied", why: verdict.why }));
         sock.close(4003, "forbidden");
         return false;
       }
-      client.email = email;
+      client.email = verdict.email;
     }
     room.clients.set(uid, client);
     return true;

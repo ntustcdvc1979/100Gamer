@@ -99,6 +99,15 @@ export async function createWebsocketTransport(
   }
 
   let denied: string | null = null;
+  /**
+   * 伺服器真的回過 welcome 了沒。
+   *
+   * 不能拿 uid 判斷 —— uid 是開場就從 localStorage 撈出來的，
+   * 一開始就是有值的。拿它當「已放行」會讓主控台完全跳過驗證。
+   */
+  let welcomed = false;
+  /** 主控台在等伺服器放行 */
+  let admitted: { resolve: () => void; reject: (e: Error) => void } | null = null;
 
   function handle(msg: ServerMsg): void {
     switch (msg.t) {
@@ -109,7 +118,10 @@ export async function createWebsocketTransport(
         } catch {
           /* 忽略 */
         }
+        welcomed = true;
         fire(true);
+        admitted?.resolve();
+        admitted = null;
         // 重連時把身分補回去。順序很重要：先報到，再搶 host。
         if (myPlayer) send({ t: "player", v: myPlayer });
         if (wantHost) send({ t: "claimHost" });
@@ -118,6 +130,8 @@ export async function createWebsocketTransport(
       case "denied":
         denied = msg.why;
         closed = true; // 不要重連，重連一樣會被拒絕
+        admitted?.reject(new AccessDenied(msg.why));
+        admitted = null;
         break;
 
       case "state":
@@ -208,10 +222,23 @@ export async function createWebsocketTransport(
 
   await connect();
 
-  // 伺服器拒絕的話，welcome 不會來但 close 會來。等一小段確認。
+  // 主控台要等伺服器明確放行才算連上。
+  //
+  // 不能用「等 150ms 看有沒有被拒」來判斷：伺服器第一次驗 Google token
+  // 要去抓 JWKS，動輒幾百毫秒。等太短會誤判成通過，然後停在一個
+  // 已經被關掉的連線上，畫面看起來正常但什麼都按不動。
   if (role === "console") {
-    await new Promise((r) => setTimeout(r, 150));
-    if (denied) throw new AccessDenied(denied);
+    await new Promise<void>((resolve, reject) => {
+      if (denied) return reject(new AccessDenied(denied));
+      if (welcomed) return resolve();
+      admitted = { resolve, reject };
+      setTimeout(() => {
+        if (admitted) {
+          admitted = null;
+          reject(new Error("伺服器沒有回應主控台的登入"));
+        }
+      }, 15000);
+    });
   }
 
   function sub<T>(list: T[], cb: T): Unsubscribe {

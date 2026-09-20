@@ -63,20 +63,59 @@ function loadGoogle(): Promise<GoogleAccounts> {
   });
 }
 
+/**
+ * 先問伺服器有沒有開驗證。
+ *
+ * 少了這一步，「前端沒設 client id」和「帳號沒權限」在畫面上長得一樣：
+ * 都是停在登入頁。但前者根本不會有按鈕可以按，跟人說「你沒有權限」
+ * 只會讓他在現場對著空白畫面找登入按鈕。
+ *
+ * @returns true/false，問不到回 null
+ */
+async function serverRequiresAuth(wsUrl: string): Promise<boolean | null> {
+  if (!wsUrl) return null;
+  try {
+    const http = wsUrl.replace(/^ws/, "http");
+    const res = await fetch(new URL("/health", http), { cache: "no-store" });
+    const json = (await res.json()) as { auth?: boolean };
+    return json.auth === true;
+  } catch {
+    return null;
+  }
+}
+
 async function main(): Promise<void> {
   // 只有這一頁用得到，所以直接在這裡讀，不放進 SETTINGS ——
   // SETTINGS 會被 Node 的腳本 import，碰 import.meta.env 會爆。
   //
-  // 沒設就跳過登入直接進去（本機開發）。正式環境一定要設，
-  // 而且**伺服器那邊也要設同一個**：前端檢查 email 是裝飾品，
-  // 真正的防線在 server/index.js 的 verifyConsole()。
+  // 真正的防線在 server/index.js 的 verifyConsole()，這裡只負責拿一張 token。
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
+  const wsUrl = import.meta.env.VITE_WS_URL ?? "";
+  const needsAuth = await serverRequiresAuth(wsUrl);
+
+  if (needsAuth === true && !clientId) {
+    // 最容易踩到的組合：伺服器鎖了，網站卻長不出登入按鈕。
+    // 直接把要補的東西寫在畫面上，不要讓人去猜。
+    $("gbtn").innerHTML =
+      '<div class="setup">' +
+      "<b>這個網站還沒設定 Google 登入</b>" +
+      "<p>伺服器已經開啟驗證，但網站少了 <code>VITE_GOOGLE_CLIENT_ID</code>，" +
+      "所以登入按鈕出不來。要補的是：</p>" +
+      "<ol>" +
+      "<li>GitHub repo → Settings → Secrets and variables → Actions → " +
+      "<b>Variables</b> 分頁（不是 Secrets）→ 新增 <code>VITE_GOOGLE_CLIENT_ID</code></li>" +
+      "<li>Actions → Deploy to GitHub Pages → <b>Run workflow</b> 重跑一次</li>" +
+      "</ol>" +
+      "<p>值要跟伺服器的 <code>GOOGLE_CLIENT_ID</code> 一樣。詳細步驟見 docs/SETUP.md。</p>" +
+      "<p>來不及的話，直接用投影幕那台筆電的鍵盤操作，功能完全一樣。</p>" +
+      "</div>";
+    return;
+  }
 
   if (!clientId) {
-    // 開發模式：沒設 client id 就直接進去。伺服器那邊沒設
-    // GOOGLE_CLIENT_ID / ALLOWED_EMAILS 的話也會放行，兩邊是一致的。
-    $("authNote").textContent = "開發模式：沒有設定 Google 登入，直接進入";
-    await connect();
+    // 兩邊都沒設 = 開發模式，直接進去。進去之後會有一條常駐警告 ——
+    // 只在登入頁閃一下就被蓋掉的訊息等於沒有。
+    await connect(undefined, true);
     return;
   }
 
@@ -97,13 +136,13 @@ async function main(): Promise<void> {
   });
 }
 
-async function connect(token?: string): Promise<void> {
+async function connect(token?: string, insecure = false): Promise<void> {
   let room: Room;
   try {
     room = await openRoom("console", { token });
   } catch (e) {
     if (e instanceof AccessDenied) {
-      $("authNote").textContent = `${e.message}。請換一個有權限的帳號。`;
+      $("authNote").textContent = e.message;
     } else {
       $("authNote").textContent = `連不上：${(e as Error).message}`;
     }
@@ -112,6 +151,8 @@ async function connect(token?: string): Promise<void> {
 
   $("login").hidden = true;
   $("panel").hidden = false;
+  // 沒有驗證的話要一直看得到，不能只在登入頁閃一下。
+  $("insecure").hidden = !insecure;
 
   const statusEl = $("status");
   const statusText = $("statusText");
