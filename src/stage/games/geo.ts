@@ -95,20 +95,19 @@ export function createGeoGame(): Game {
     );
   }
 
-  /** 地圖在投影幕上的位置。留左邊給題目與排名。 */
+  /** 地圖在投影幕上的位置。置中，左邊放題目與照片、右邊放名次。 */
   function mapBox(ctx: GameContext): { x: number; y: number; w: number; h: number } {
     const { w, h } = ctx.surface;
-    const mh = h * 0.86;
+    const mh = h * 0.84;
     // 台灣大約 1:1.7，照這個比例抓寬度
     const mw = mh * 0.62;
-    return { x: w - mw - h * 0.05, y: h * 0.07, w: mw, h: mh };
+    // 置中。左邊放題目與照片，右邊放名次（右上角要讓開 QR）。
+    return { x: (w - mw) / 2, y: h * 0.08, w: mw, h: mh };
   }
 
   return {
     id: "geo",
     title: "地理達人",
-    // 地圖畫在右半邊，右上角的 QR 會整個蓋住宜蘭花蓮那一段
-    hideQr: true,
     brief: "個人賽。30秒內，玩家在手機的地圖上點你認為的位置。",
 
     enter(ctx) {
@@ -159,26 +158,34 @@ export function createGeoGame(): Game {
       const { ctx: g, unit } = ctx.surface;
       const box = mapBox(ctx);
 
-      /* ---- 左側：題目、照片、排名 ---- */
+      /* ---- 左欄：題目、照片、倒數 ----
+         左欄的寬度就是「畫面左緣到地圖左緣」那一段。照片與文字都夾在
+         這個寬度裡，所以永遠不會壓到地圖；高度也另外夾住，不會掉出畫面。 */
+      const pad = unit * 3;
+      const colW = box.x - pad * 2;
+
       g.textAlign = "left";
       g.textBaseline = "top";
       g.fillStyle = "#FFFFFF";
-      g.font = `900 ${Math.round(unit * 7)}px system-ui, "Noto Sans TC", sans-serif`;
-      // 從 unit*22 開始，讓開左上角 HUD（人數、關卡名、操作提示）
-      g.fillText(q().name, unit * 4, unit * 22);
+      g.font = `900 ${Math.round(unit * 6)}px system-ui, "Noto Sans TC", sans-serif`;
+      // 從 unit*18 開始，讓開左上角 HUD（人數、關卡名）
+      g.fillText(q().name, pad, unit * 18);
       if (q().hint) {
-        g.font = `700 ${Math.round(unit * 3)}px system-ui, "Noto Sans TC", sans-serif`;
+        g.font = `700 ${Math.round(unit * 2.6)}px system-ui, "Noto Sans TC", sans-serif`;
         g.fillStyle = "rgba(255,255,255,.6)";
-        g.fillText(q().hint as string, unit * 4, unit * 31);
+        g.fillText(q().hint as string, pad, unit * 26);
       }
 
-      // 照片（有放才畫）
-      let infoY = unit * 37;
+      // 照片。盡量放大到左欄的寬度，但高度不能讓它掉出畫面下緣。
+      let infoY = unit * 32;
       const photo = photos.get(index);
       if (photo?.complete && photo.naturalWidth > 1) {
-        const pw = Math.min(box.x - unit * 8, unit * 44);
-        const ph = (photo.naturalHeight / photo.naturalWidth) * pw;
-        g.drawImage(photo, unit * 4, infoY, pw, ph);
+        const maxH = ctx.surface.h - infoY - unit * 14; // 下面還要留倒數的位置
+        const scale = Math.min(colW / photo.naturalWidth, maxH / photo.naturalHeight);
+        const pw = photo.naturalWidth * scale;
+        const ph = photo.naturalHeight * scale;
+        // 在左欄裡置中，直式橫式都不會偏到一邊
+        g.drawImage(photo, pad + (colW - pw) / 2, infoY, pw, ph);
         infoY += ph + unit * 3;
       }
 
@@ -186,25 +193,27 @@ export function createGeoGame(): Game {
       g.fillStyle = "#F2A72C";
       const left = running ? Math.ceil((endsAt - now) / 1000) : 0;
       g.fillText(
-        revealed ? "公布答案" : running ? `${left} 秒　${guesses.size}人已作答` : "按 T 開始",
-        unit * 4,
+        revealed ? "公布答案" : running ? `${left} 秒　${guesses.size}人已作答` : "準備中",
+        pad,
         infoY,
       );
 
+      /* ---- 右欄：名次。從 QR 下面開始，不要被蓋到。 ---- */
       if (revealed && ranked.length > 0) {
+        const rx = box.x + box.w + pad;
         g.font = `700 ${Math.round(unit * 2.6)}px system-ui, "Noto Sans TC", sans-serif`;
         ranked.slice(0, SHOW_TOP).forEach(([uid, gu], i) => {
           const a = ctx.field.actors.get(uid);
           g.fillStyle = i === 0 ? "#F2A72C" : "rgba(255,255,255,.85)";
           g.fillText(
             `${i + 1}. ${a?.name ?? ""}　${gu.km.toFixed(1)} km　${gu.score} 分`,
-            unit * 4,
-            infoY + unit * (6 + i * 3.4),
+            rx,
+            unit * 32 + i * unit * 4,
           );
         });
       }
 
-      /* ---- 右側：地圖 ---- */
+      /* ---- 中間：地圖 ---- */
       g.save();
       g.translate(box.x, box.y);
 

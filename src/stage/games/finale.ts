@@ -139,7 +139,7 @@ export function createFinaleGame(): Game {
       if (revealedCount === 0) {
         g.fillStyle = "rgba(255,255,255,.65)";
         g.font = `700 ${Math.round(unit * 3)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillText("按 T 開始揭曉", w / 2, h * 0.5);
+        g.fillText("準備頒獎", w / 2, h * 0.5);
       }
     },
 

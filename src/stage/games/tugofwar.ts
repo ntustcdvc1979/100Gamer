@@ -194,7 +194,7 @@ export function createTugOfWarGame(): Game {
         g.globalAlpha = 1;
       } else if (!running) {
         g.font = `900 ${Math.round(unit * 4)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillText(`第 ${round} 局　按 T 開球`, w / 2, stripY - unit * 4);
+        g.fillText(`第 ${round} 局`, w / 2, stripY - unit * 4);
       }
     },
 

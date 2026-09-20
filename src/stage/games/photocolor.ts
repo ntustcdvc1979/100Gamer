@@ -166,7 +166,7 @@ export function createPhotoColorGame(): Game {
       g.font = `900 ${Math.round(unit * 5)}px system-ui, "Noto Sans TC", sans-serif`;
       const left = running ? Math.ceil((endsAt - now) / 1000) : 0;
       g.fillText(
-        running ? `${left} 秒　已交 ${shots.size}` : `按 T 開始　已交 ${shots.size}`,
+        running ? `${left} 秒　已交 ${shots.size}` : `準備中`,
         w / 2,
         swatchH + unit * 5,
       );

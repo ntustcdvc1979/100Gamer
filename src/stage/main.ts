@@ -86,7 +86,8 @@ async function main(): Promise<void> {
     game = games[index] as Game;
     game.enter(ctx);
     $("gameTitle").textContent = game.title;
-    $("gameBrief").textContent = game.brief;
+    // brief 是給主持人看的操作說明（按什麼鍵、怎麼換題），
+    // 觀眾不需要，所以只留在 Esc 的關卡選單裡，不印在投影幕上。
     // 有些關卡（地理達人、頒獎）會用到右上角那一塊，QR 得收起來
     $("qrPanel").hidden = game.hideQr === true;
     renderMenu();

@@ -32,7 +32,6 @@ body { background: #14141A; overflow: hidden; }
 .qr-panel.small .url { display: none; }
 
 .hud .game { margin-top: .6rem; font-size: 1.4em; font-weight: 900; }
-.hud .brief { max-width: 26rem; font-size: .7em; opacity: .55; line-height: 1.5; }
 
 /* Esc 叫出來的關卡選單。現場跳關就靠它。 */
 .menu {

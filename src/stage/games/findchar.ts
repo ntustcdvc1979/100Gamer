@@ -176,7 +176,7 @@ export function createFindCharGame(): Game {
           ? `${found} 個人找到了`
           : running
             ? `${left} 秒　已有 ${found} 人找到`
-            : `找出不一樣的字　按 T 開始`,
+            : `找出不一樣的字`,
         w / 2,
         unit * 6,
       );

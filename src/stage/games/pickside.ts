@@ -169,7 +169,7 @@ export function createPickSideGame(): Game {
       const sub =
         stage === "counting" ? `${Math.ceil((endsAt - now) / 1000)}`
         : stage === "revealed" ? (question.answer !== undefined ? "標準答案" : "少數派得分")
-        : "按 T 開始倒數";
+        : "準備中";
       g.fillText(sub, w / 2, h / 2 + unit * 2.8);
 
       // 個人排行榜

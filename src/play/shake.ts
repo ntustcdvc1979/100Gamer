@@ -24,8 +24,6 @@ export interface ShakeCounter {
   readonly count: number;
   /** 最近有沒有真的收到感測器事件。手機端要顯示「已偵測到感應器」。 */
   readonly sensing: boolean;
-  /** 沒有感測器的人用按鈕，一下算一下。 */
-  bump(): void;
   /**
    * 切換判定方式。
    *   shake 任何方向的強烈晃動（拔河、賽跑）
@@ -87,9 +85,6 @@ export function createShakeCounter(): ShakeCounter {
     get sensing() {
       // 2 秒內有收到事件就算感測器活著。iOS 沒給權限的話一則都不會來。
       return performance.now() - lastEventAt < 2000;
-    },
-    bump() {
-      count++;
     },
     setMode(m) {
       mode = m;

@@ -195,7 +195,15 @@ function startPlaying(room: Room, name: string, team: TeamId): void {
   setInterval(() => {
     const live = motion.sensing || shaker.sensing;
     sensorEl.classList.toggle("on", live);
-    sensorEl.textContent = live ? "✓ 已偵測到感應器" : "✗ 沒有偵測到感應器，請用按鈕";
+    if (live) {
+      sensorEl.textContent = "✓ 已偵測到感應器";
+    } else if (control === "shake") {
+      // 搖動那三關沒有按鈕備援，所以提示要指向「開啟感應器」那顆，
+      // 不能還寫「請用按鈕」—— 那顆按鈕已經不在了。
+      sensorEl.textContent = "✗ 沒有感應器，請按下面的「開啟感測器」";
+    } else {
+      sensorEl.textContent = "✗ 沒有偵測到感應器，請用按鈕";
+    }
   }, 500);
 
   /* ---------- 拍照找顏色 ---------- */
@@ -280,8 +288,11 @@ function startPlaying(room: Room, name: string, team: TeamId): void {
     sendAct(performance.now() - startedAt, "tap");
   });
 
-  /* ---------- 搖手機 ---------- */
-  $("shakeBtn").addEventListener("click", () => shaker.bump());
+  /* ---------- 搖手機 ----------
+     這三關**沒有**按鈕備援。按按鈕比搖手機快得多，留著就等於
+     開一條合法的作弊路徑，整關的比較會失去意義。
+     火候達人不一樣：它比的是「時間點」不是「次數」，按鈕不會比較快，
+     所以那一關保留備援，讓感測器壞掉的人也能玩。 */
 
   /* ---------- 地理達人：台灣地圖 ---------- */
   const mapSvg = $("map");
@@ -392,9 +403,7 @@ function startPlaying(room: Room, name: string, team: TeamId): void {
       shaker.setMode(pull ? "pull" : "shake");
       $("shakeBig").textContent = pull ? "⬆️" : "🫨";
       $("shakeVerb").textContent = pull ? "把手機往上拉！" : "用力搖手機！";
-      $("shakeBtn").textContent = pull
-        ? "感測器不能用？狂按這裡"
-        : "感測器不能用？狂按這裡";
+
     }
 
     if (control === "camera") {

@@ -213,7 +213,7 @@ export function createShakeTugGame(): Game {
         g.textAlign = "center";
         g.fillStyle = "#FFFFFF";
         g.font = `900 ${Math.round(unit * 4)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillText("按 T 開始", w / 2, h * 0.5);
+        g.fillText("準備中", w / 2, h * 0.5);
       }
     },
 
@@ -236,7 +236,7 @@ export function createShakeTugGame(): Game {
 }
 
 /* ============================================================
-   二、搖賽跑 —— 團體賽
+   二、熱血賽跑 —— 團體賽
 
    同一隊所有人的次數累加起來推動同一個隊伍角色。
    一圈要幾下由主控台設定（Command k:"setting"）。
@@ -284,7 +284,7 @@ export function createShakeRunGame(): Game {
 
   return {
     id: "shakerun",
-    title: "搖賽跑",
+    title: "熱血賽跑",
     brief: `團體賽。全隊次數累加，跑 ${LAPS} 圈。`,
 
     enter: reset,
@@ -386,7 +386,7 @@ export function createShakeRunGame(): Game {
       if (!running && podium.length === 0) {
         g.fillStyle = "#FFFFFF";
         g.font = `900 ${Math.round(unit * 4)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillText("按 T 開始", cx, cy + unit * 20);
+        g.fillText("準備中", cx, cy + unit * 20);
       }
 
       if (podium.length > 0) {
@@ -548,7 +548,7 @@ export function createShakeCarrotGame(): Game {
       g.textBaseline = "middle";
       g.fillStyle = "#FFFFFF";
       g.font = `900 ${Math.round(unit * 8)}px system-ui, "Noto Sans TC", sans-serif`;
-      g.fillText(running ? `${left}` : "按 T 開始", w / 2, unit * 10);
+      g.fillText(running ? `${left}` : "準備中", w / 2, unit * 10);
 
       // 四隊的田
       const colW = w / 4;

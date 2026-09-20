@@ -32,7 +32,7 @@ const GAMES = [
   { id: "shaketug", title: "搖拔河", note: "紅vs黃、綠vs藍・搖手機" },
   { id: "geo", title: "地理達人", note: "個人賽・點地圖・30 秒" },
   { id: "findchar", title: "文字找不同", note: "個人賽・30 秒" },
-  { id: "shakerun", title: "搖賽跑", note: "團體賽・搖手機" },
+  { id: "shakerun", title: "熱血賽跑", note: "團體賽・搖手機" },
   { id: "photocolor", title: "拍照找顏色", note: "個人賽・60 秒" },
   { id: "shakecarrot", title: "拔蘿蔔", note: "分組對抗・拉手機・1 分鐘" },
   { id: "heatmaster", title: "火候達人", note: "個人賽・六道菜" },
@@ -214,7 +214,7 @@ async function connect(token?: string, insecure = false): Promise<void> {
     room.sendCommand({ k: "resetScores" });
   });
 
-  /* ---- 搖賽跑：一圈要幾下 ---- */
+  /* ---- 熱血賽跑：一圈要幾下 ---- */
   $("btnPerLap").addEventListener("click", () => {
     const v = Number($<HTMLInputElement>("perLap").value);
     if (!Number.isFinite(v) || v < 100) return;
