@@ -206,9 +206,10 @@ export class Field {
       ctx.arc(px, py, r, 0, Math.PI * 2);
       ctx.fill();
 
-      // 這一題答對／已經進到目標區的人加一圈白邊，遠遠看得出來
+      // 這一題答對／已經進到目標區的人加一圈邊，遠遠看得出來。
+      // 風象是白的，白邊會整個消失在白點上，所以淺色隊改用深色邊。
       if (a.flag) {
-        ctx.strokeStyle = "#FFFFFF";
+        ctx.strokeStyle = TEAMS[a.team].light ? "#2A2A30" : "#FFFFFF";
         ctx.lineWidth = Math.max(2, r * 0.22);
         ctx.stroke();
       }

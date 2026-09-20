@@ -198,9 +198,17 @@ class Room {
     this.toRole("stage", { t: "players", v: this.players });
   }
 
-  drop(uid) {
+  /**
+   * @param sock 只有在「這個 uid 現在登記的就是這條連線」時才移除。
+   *
+   * 接手（takeover）的時候，舊 socket 的 close 事件會比新連線註冊
+   * 晚一拍才觸發。不比對的話，那一拍會把剛接手的新連線從名單上刪掉 ——
+   * 玩家會看到自己一連上就馬上從投影幕消失。
+   */
+  drop(uid, sock) {
     const c = this.clients.get(uid);
     if (!c) return;
+    if (sock && c.sock !== sock) return;
     this.clients.delete(uid);
     /* 投影幕掛了就把 host 讓出來，備用筆電才接得了手 */
     if (this.host === uid) this.host = null;
@@ -260,7 +268,27 @@ wss.on("connection", (sock, req) => {
   const wanted = url.searchParams.get("uid");
 
   const room = roomFor(code);
-  const uid = wanted && !room.clients.has(wanted) ? wanted : randomUUID();
+
+  /* uid 是「一個人」，不是「一條連線」。
+     有人帶著已經在線上的 uid 連進來，代表他的舊連線其實已經死了
+     （換基地台、Wi-Fi 切 4G、進電梯），只是伺服器還沒察覺。
+
+     舊的寫法是「被佔用就發一個新 uid」，那會很慘：
+     名單上同一個人變成兩筆，舊的那筆超時被清掉時連帶把分數清掉；
+     而手機的 localStorage 還記著舊 uid，下次重連又翻回去。
+
+     正確的做法是接手：把舊連線關掉，新的沿用同一個 uid。 */
+  const uid = wanted || randomUUID();
+  const stale = wanted ? room.clients.get(wanted) : undefined;
+  if (stale && stale.sock !== sock) {
+    console.log("[takeover] " + uid);
+    try {
+      stale.sock.terminate();
+    } catch {
+      /* 已經死了就算了 */
+    }
+    room.clients.delete(uid);
+  }
 
   if (role === "play" && room.banned.has(uid)) {
     sock.send(JSON.stringify({ t: "denied", why: "你已經被主持人請出遊戲" }));
@@ -270,9 +298,9 @@ wss.on("connection", (sock, req) => {
 
   const client = { sock, uid, role, email: null };
 
-  sock.isAlive = true;
+  sock.missed = 0;
   sock.on("pong", () => {
-    sock.isAlive = true;
+    sock.missed = 0;
   });
 
   /* 主控台要先驗過才收進房間，驗不過直接關掉。 */
@@ -410,7 +438,7 @@ wss.on("connection", (sock, req) => {
   });
 
   sock.on("close", () => {
-    room.drop(uid);
+    room.drop(uid, sock);
     if (room.empty) {
       room.close();
       rooms.delete(code);
@@ -421,14 +449,20 @@ wss.on("connection", (sock, req) => {
 });
 
 /* 手機鎖屏、走進電梯不會送 close，只能靠心跳把它清掉，
-   不然投影幕上會留著一堆早就離開的人。 */
+   不然投影幕上會留著一堆早就離開的人。
+
+   但只容許漏一次 pong 太嚴格了：手機息屏或切到別的 app 的時候，
+   整個分頁會被凍結，30 秒漏一拍是家常便飯 —— 那樣會把只是暫時
+   把手機收起來的人全部踢掉。容許連漏兩次（約 60–90 秒）才砍。 */
+const MISSES_ALLOWED = 2;
+
 const heartbeat = setInterval(() => {
   for (const sock of wss.clients) {
-    if (sock.isAlive === false) {
+    sock.missed = (sock.missed ?? 0) + 1;
+    if (sock.missed > MISSES_ALLOWED) {
       sock.terminate();
       continue;
     }
-    sock.isAlive = false;
     sock.ping();
   }
 }, HEARTBEAT_MS);

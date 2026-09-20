@@ -81,11 +81,19 @@ async function main(): Promise<void> {
   /* ---------- 選隊 ---------- */
   let picked: TeamId | null = null;
   const teamBox = $("teams");
-  teamBox.innerHTML = TEAM_IDS.map(
-    (id) =>
-      `<button type="button" class="teamBtn" data-t="${id}" style="--c:${TEAMS[id].color}">` +
-      `<span class="tn">${TEAMS[id].name}</span><span class="tc" data-c="${id}">—</span></button>`,
-  ).join("");
+  teamBox.innerHTML = TEAM_IDS.map((id) => {
+    const t = TEAMS[id];
+    // --c 邊框與選中時的底色，--t 沒選中時的字色，--k 選中時的字色。
+    //
+    // 風象是白的：字色直接沿用隊色的話，會變成白底白字整個看不見。
+    // 淺色隊的字改用深灰，選中之後才用隊色當底、ink 當字。
+    const text = t.light ? "#6B6B75" : t.color;
+    return (
+      `<button type="button" class="teamBtn" data-t="${id}" ` +
+      `style="--c:${t.color};--t:${text};--k:${t.ink}">` +
+      `<span class="tn">${t.name}</span><span class="tc" data-c="${id}">—</span></button>`
+    );
+  }).join("");
 
   teamBox.addEventListener("click", (e) => {
     const btn = (e.target as HTMLElement).closest<HTMLElement>(".teamBtn");

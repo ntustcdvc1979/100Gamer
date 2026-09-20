@@ -123,10 +123,10 @@
 .teamBtn {
   display: flex; flex-direction: column; align-items: center; gap: .2rem;
   padding: .9rem .5rem; border: 3px solid var(--c); border-radius: 1rem;
-  background: var(--card); color: var(--c); font: inherit; font-weight: 900;
+  background: var(--card); color: var(--t); font: inherit; font-weight: 900;
   font-size: 1.1rem; cursor: pointer;
 }
-.teamBtn.on { background: var(--c); color: #fff; }
+.teamBtn.on { background: var(--c); color: var(--k); }
 .teamBtn .tc { font-size: .8rem; font-weight: 700; opacity: .75; }
 
 /* 感應器狀態。火候達人和搖手機都靠它，開始前就要知道自己能不能用。 */

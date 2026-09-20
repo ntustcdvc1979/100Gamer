@@ -182,6 +182,26 @@ export async function createWebsocketTransport(
 
   function connect(): Promise<void> {
     return new Promise((resolve, reject) => {
+      // 先把上一條連線徹底切乾淨。
+      //
+      // 不做這件事的話會疊出多條 socket：舊的那條之後還是會觸發 onclose，
+      // 又排一次重連，於是一支手機在伺服器上變成好幾條連線，
+      // uid 接手互相打架。把 handler 清掉再關，它就不會再叫醒任何人。
+      if (sock) {
+        const old = sock;
+        old.onopen = null;
+        old.onmessage = null;
+        old.onerror = null;
+        old.onclose = null;
+        if (old.readyState === WebSocket.OPEN || old.readyState === WebSocket.CONNECTING) {
+          try {
+            old.close();
+          } catch {
+            /* 已經關了就算了 */
+          }
+        }
+      }
+
       const s = new WebSocket(url());
       sock = s;
 
@@ -221,6 +241,28 @@ export async function createWebsocketTransport(
   }
 
   await connect();
+
+  /* ============================================================
+     回到前景就立刻重連，不要等退避。
+
+     手機息屏、切到別的 app、鎖起來放口袋 —— 這些都會讓連線斷掉，
+     而且瀏覽器會把整個分頁凍結，退避計時器也停著。等使用者解鎖回來，
+     他會先看到「連線中斷」，然後還要再等最多 5 秒。
+
+     實際上「螢幕亮起來」就是最好的重連信號：使用者正在看，網路也回來了。
+     online 事件同理（切換 Wi-Fi／行動網路）。
+     ============================================================ */
+  function wakeUp(): void {
+    if (closed || denied) return;
+    if (sock?.readyState === WebSocket.OPEN || sock?.readyState === WebSocket.CONNECTING) return;
+    retry = 0;
+    void connect().catch(() => {});
+  }
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") wakeUp();
+  });
+  window.addEventListener("online", wakeUp);
+  window.addEventListener("pageshow", wakeUp);
 
   // 主控台要等伺服器明確放行才算連上。
   //

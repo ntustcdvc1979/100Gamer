@@ -63,10 +63,10 @@ function byTeam(
 /* ============================================================
    一、搖拔河 —— 兩場同時進行
 
-   上半場 紅 vs 黃，下半場 綠 vs 藍。
+   上半場 火象 vs 水象，下半場 土象 vs 風象。
 
    為什麼是兩場 1v1 而不是一場 2v2：每個人都要看得到「我這一隊」的繩子在哪，
-   四隊擠一條繩子的話，紅隊的人根本分不出來是自己拉贏還是黃隊拉贏。
+   四隊擠一條繩子的話，火象的人根本分不出來是自己拉贏還是水象拉贏。
    ============================================================ */
 
 /** 兩場對戰。[上半場, 下半場]，每一場是 [左, 右]。 */
@@ -103,13 +103,13 @@ export function createShakeTugGame(): Game {
     for (const id of TEAM_IDS) pulls[id] = 0;
     meter.reset();
     ctx.field.reset(false);
-    announce(ctx, "紅 vs 黃、綠 vs 藍，兩場同時比。等主持人喊開始");
+    announce(ctx, `${TEAMS.A.name} vs ${TEAMS.B.name}、${TEAMS.C.name} vs ${TEAMS.D.name}，兩場同時比。等主持人喊開始`);
   }
 
   return {
     id: "shaketug",
     title: "搖拔河",
-    brief: "兩場同時比：上半場紅 vs 黃，下半場綠 vs 藍。搖一下拉一下。T 開始／暫停，R 重來。",
+    brief: `兩場同時比：上半場${TEAMS.A.name} vs ${TEAMS.B.name}，下半場${TEAMS.C.name} vs ${TEAMS.D.name}。搖一下拉一下。T 開始／暫停，R 重來。`,
 
     enter: reset,
 
