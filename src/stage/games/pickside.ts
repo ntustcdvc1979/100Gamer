@@ -190,6 +190,18 @@ export function createPickSideGame(): Game {
       }
     },
 
+    running: () => stage === "counting",
+
+    /* 沒有暫停：倒數一旦開始，全場正在走位，停下來沒有意義。 */
+    run(on, ctx) {
+      if (!on) return false;
+      if (stage !== "idle") return true;
+      stage = "counting";
+      endsAt = performance.now() + COUNTDOWN_MS;
+      announce(ctx, `${q().text}　快選！`);
+      return true;
+    },
+
     key(e, ctx) {
       if (e.key === "t" || e.key === "T") {
         if (stage === "idle") {

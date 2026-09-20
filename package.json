@@ -8,6 +8,7 @@
     "server": "node server/index.js",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
+    "host": "node scripts/local-host.mjs",
     "typecheck": "tsc --noEmit",
     "fake": "tsx scripts/fakeplayers.ts",
     "loadtest:ws": "tsx scripts/loadtest-ws.ts",

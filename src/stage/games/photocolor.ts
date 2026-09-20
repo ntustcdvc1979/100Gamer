@@ -178,6 +178,18 @@ export function createPhotoColorGame(): Game {
       ctx.field.drawActors(ctx.surface, now, { radius: unit * 1.6, names: false });
     },
 
+    running: () => running,
+
+    /* 沒有暫停：大家已經散到場地各處在拍照了，凍住畫面幫不上任何忙。 */
+    run(on, ctx) {
+      if (!on) return false;
+      if (running || revealed) return true;
+      running = true;
+      endsAt = performance.now() + ROUND_MS;
+      announce(ctx, `找「${prompt().label}」，拍下來！可以重拍，但只能上傳一次`);
+      return true;
+    },
+
     key(e, ctx) {
       if (e.key === "t" || e.key === "T") {
         if (revealed) return true;

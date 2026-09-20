@@ -143,6 +143,21 @@ export function createFinaleGame(): Game {
       }
     },
 
+    running: () => running,
+
+    run(on, ctx) {
+      if (running === on) return true;
+      if (on) {
+        if (revealedCount === 0) snapshot(ctx); // 開始前再抓一次最新的
+        running = true;
+        lastStep = 0;
+      } else {
+        // 暫停是頒獎時最常用的功能：停在某一名讓大家拍照
+        running = false;
+      }
+      return true;
+    },
+
     key(e, ctx) {
       if (e.key === "t" || e.key === "T") {
         if (revealedCount === 0) snapshot(ctx); // 開始前再抓一次最新的

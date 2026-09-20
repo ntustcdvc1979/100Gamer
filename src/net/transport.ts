@@ -82,8 +82,17 @@ export interface RoomTransport {
 
   /* ---- 主控台：需要伺服器端驗身分，只有 websocket / local 支援 ---- */
 
-  /** console → stage。 */
-  sendCommand?(cmd: Command): void;
+  /** console → stage。@returns 真的送出去了沒（連線斷掉時是 false）。 */
+  sendCommand?(cmd: Command): boolean;
+
+  /**
+   * 只有 console 該呼叫。伺服器回報「這則指令送到幾台投影幕」。
+   *
+   * sendCommand 回 true 只代表「送進網路了」，不代表有人接到。
+   * 投影幕剛好斷線的話指令會在伺服器那裡蒸發，而主持人正站在台上
+   * 等一個不會發生的開始 —— stages === 0 就是要立刻講出來的那一刻。
+   */
+  onCommandAck?(cb: (ack: { k?: string; stages: number }) => void): Unsubscribe;
 
   /** 只有 stage 該呼叫。 */
   onCommand?(cb: (cmd: Command) => void): Unsubscribe;

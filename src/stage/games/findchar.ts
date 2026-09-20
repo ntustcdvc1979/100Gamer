@@ -202,6 +202,19 @@ export function createFindCharGame(): Game {
       void startedAt;
     },
 
+    running: () => running,
+
+    /* 沒有暫停 —— 理由同地理達人：計時中凍住，玩家只會以為自己斷線。 */
+    run(on, ctx) {
+      if (!on) return false;
+      if (running || revealed) return true;
+      running = true;
+      startedAt = performance.now();
+      endsAt = startedAt + ROUND_MS;
+      announce(ctx, `找出「${p().odd}」！`);
+      return true;
+    },
+
     key(e, ctx) {
       if (e.key === "t" || e.key === "T") {
         if (revealed) return true;

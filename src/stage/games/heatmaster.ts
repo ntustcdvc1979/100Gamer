@@ -237,6 +237,19 @@ export function createHeatMasterGame(): Game {
       }
     },
 
+    running: () => running,
+
+    run(on, ctx) {
+      if (running === on) return true;
+      running = on;
+      if (on) {
+        startedAt = performance.now();
+        acts.clear();
+      }
+      announce(ctx, on ? `${dish().name}　開始！自己數 ${dish().seconds} 秒` : "暫停");
+      return true;
+    },
+
     key(e, ctx) {
       if (e.key === "t" || e.key === "T") {
         running = !running;

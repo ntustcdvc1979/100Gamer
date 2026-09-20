@@ -215,6 +215,7 @@ export function createLocalTransport(): RoomTransport {
     sendCommand(cmd) {
       post({ w: "cmd", v: cmd });
       for (const cb of commandCbs) safely(() => cb(cmd));
+      return true;
     },
 
     onCommand(cb) {

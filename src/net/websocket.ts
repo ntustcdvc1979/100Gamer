@@ -26,6 +26,8 @@ import type { Role, RoomTransport, Unsubscribe } from "./transport";
 type ServerMsg =
   | { t: "welcome"; uid: string; email: string | null }
   | { t: "denied"; why: string }
+  | { t: "pong" }
+  | { t: "cmdAck"; k?: string; stages: number }
   | { t: "state"; v: RoomState | null }
   | { t: "players"; v: Record<string, Player> }
   | { t: "inputs"; v: Record<string, Input> }
@@ -43,10 +45,42 @@ export async function createWebsocketTransport(
   role: Role,
   token?: string,
 ): Promise<RoomTransport> {
-  const UID_KEY = "p100:uid";
+  /* uid 要分角色存。
+     投影幕、主控台、手機是同一個網域下的三個頁面，localStorage 是共用的 ——
+     共用一把 key 的話，在同一台電腦上開投影幕和主控台會變成：
+     兩邊帶著同一個 uid 連上來，伺服器把 uid 當成「同一個人」，
+     於是後到的踢掉先到的，先到的重連又踢掉後到的，無限互踢。
+     現場的症狀就是「連線很不穩」「主控台按了沒反應」，而且只有
+     把兩個頁面開在同一台機器上時才會發生。
+
+     手機維持用舊的 key，這樣已經加入的人重整不會變成新的人（會重新分隊）。 */
+  const UID_KEY = role === "play" ? "p100:uid" : `p100:uid:${role}`;
 
   // 開發時同一台電腦要開好幾個玩家，?u= 可以強制分身。
   const forced = new URLSearchParams(location.search).get("u");
+  /* ============================================================
+     心跳：手機這一端要能自己發現「線已經死了」
+
+     最難處理的斷線不是「斷了」，是「看起來還連著」。
+     手機從 Wi-Fi 切到行動網路、或是換一個基地台，TCP 連線會變成半開：
+     readyState 還是 OPEN，onclose 不會觸發（在行動網路上可能拖好幾分鐘），
+     畫面顯示「已連線」，但送出去的東西沒人收、伺服器送來的也進不來。
+
+     主持人按下開始，全場動了、就是有幾個人不動 —— 那幾個人就是卡在這裡。
+     他們自己不會知道，因為畫面看起來一切正常。
+
+     WebSocket 協定層有 ping/pong，但那是瀏覽器自動回的，JavaScript 看不到，
+     所以只能自己在應用層打一個。收不到回音就當作線死了，主動重連。
+
+     3 秒打一次、10 秒沒回音就重連：這個組合在一場 30 分鐘的活動裡
+     每支手機約 600 則訊息，對頻寬毫無影響，但把「卡住不動」的時間
+     從幾分鐘壓到 10 秒以內。順帶還能讓 NAT 不要把閒置連線收掉。
+     ============================================================ */
+  const PING_MS = 3000;
+  const PONG_TIMEOUT_MS = 10000;
+  /** 連上但握手一直不完成也算掛了 —— 行動網路上這種卡住很常見。 */
+  const OPEN_TIMEOUT_MS = 8000;
+
   let uid = "";
   try {
     const stored = localStorage.getItem(UID_KEY) ?? "";
@@ -59,6 +93,8 @@ export async function createWebsocketTransport(
   let closed = false;
   let connected = false;
   let retry = 0;
+  /** 上一次確定「這條線還活著」的時刻。任何一則收到的訊息都算數。 */
+  let lastPongAt = 0;
 
   const stateCbs: ((s: RoomState | null) => void)[] = [];
   const playerCbs: ((p: Record<string, Player>) => void)[] = [];
@@ -87,6 +123,17 @@ export async function createWebsocketTransport(
   // 重連之後要補回去的東西
   let myPlayer: Partial<Player> | null = null;
   let wantHost = false;
+  /**
+   * 投影幕最後一次送出去的流程狀態。
+   *
+   * 投影幕的連線也會斷 —— 會場的 Wi-Fi 抖一下就夠了。斷著的那幾秒
+   * 主持人按了開始，setState 靜默失敗，投影幕自己的畫面跑起來了，
+   * 伺服器和一百支手機卻停在上一個狀態，而且不會有任何人發現。
+   * 重連時補送一次，就不會有這種「只有投影幕知道遊戲開始了」的狀況。
+   */
+  let lastSentState: RoomState | null = null;
+
+  const ackCbs: ((ack: { k?: string; stages: number }) => void)[] = [];
 
   let hostWaiter: ((ok: boolean) => void) | null = null;
 
@@ -130,12 +177,26 @@ export async function createWebsocketTransport(
           /* 忽略 */
         }
         welcomed = true;
+        lastPongAt = Date.now();
         fire(true);
         admitted?.resolve();
         admitted = null;
-        // 重連時把身分補回去。順序很重要：先報到，再搶 host。
+        // 重連時把身分補回去。順序很重要：先報到，再搶 host，
+        // 最後才補狀態 —— 伺服器是照順序處理的，state 的權限檢查
+        // 看的是 room.host，claimHost 沒先到就會被擋下來。
         if (myPlayer) send({ t: "player", v: myPlayer });
-        if (wantHost) send({ t: "claimHost" });
+        if (wantHost) {
+          send({ t: "claimHost" });
+          if (lastSentState) send({ t: "state", v: lastSentState });
+        }
+        break;
+
+      case "pong":
+        lastPongAt = Date.now();
+        break;
+
+      case "cmdAck":
+        for (const cb of ackCbs) cb({ k: msg.k, stages: msg.stages });
         break;
 
       case "denied":
@@ -186,10 +247,18 @@ export async function createWebsocketTransport(
     }
   }
 
-  function send(msg: object): void {
-    if (sock?.readyState === WebSocket.OPEN) {
-      sock.send(JSON.stringify(msg));
-    }
+  /**
+   * @returns 真的送出去了沒。
+   *
+   * 以前這裡是 void：連線斷掉就靜默丟掉。搖桿漏一格無所謂，
+   * 但主控台按「下一關」被丟掉是會讓主持人在台上乾等的 ——
+   * 而主控台是一支會不斷息屏、切 app 的手機，斷線是常態不是例外。
+   * 現在把結果回報出去，讓呼叫端可以告訴使用者「沒送出去，再按一次」。
+   */
+  function send(msg: object): boolean {
+    if (sock?.readyState !== WebSocket.OPEN) return false;
+    sock.send(JSON.stringify(msg));
+    return true;
   }
 
   function connect(): Promise<void> {
@@ -218,6 +287,8 @@ export async function createWebsocketTransport(
       sock = s;
 
       s.onmessage = (ev) => {
+        // 收到任何東西都代表線是活的，不必等 pong
+        lastPongAt = Date.now();
         try {
           handle(JSON.parse(ev.data as string) as ServerMsg);
         } catch {
@@ -225,8 +296,22 @@ export async function createWebsocketTransport(
         }
       };
 
+      // 卡在 CONNECTING 的連線不會觸發 onclose，也不會觸發 onerror，
+      // 就這樣掛著。沒有這個計時器的話，重連邏輯永遠不會再被叫醒。
+      const openTimer = setTimeout(() => {
+        if (s.readyState === WebSocket.CONNECTING) {
+          try {
+            s.close();
+          } catch {
+            /* 忽略 */
+          }
+        }
+      }, OPEN_TIMEOUT_MS);
+
       s.onopen = () => {
+        clearTimeout(openTimer);
         retry = 0;
+        lastPongAt = Date.now();
         resolve();
       };
 
@@ -235,6 +320,7 @@ export async function createWebsocketTransport(
       };
 
       s.onclose = () => {
+        clearTimeout(openTimer);
         fire(false);
         if (denied) {
           reject(new AccessDenied(denied));
@@ -275,6 +361,49 @@ export async function createWebsocketTransport(
   });
   window.addEventListener("online", wakeUp);
   window.addEventListener("pageshow", wakeUp);
+  window.addEventListener("focus", wakeUp);
+
+  /** 把現在這條線當作已死，立刻重連。 */
+  function revive(why: string): void {
+    if (closed || denied) return;
+    console.warn("[p100] " + why + "，重連");
+    retry = 0;
+    const dead = sock;
+    sock = null;
+    if (dead) {
+      dead.onclose = null; // 不要讓它再排一次重連，這裡自己來
+      dead.onmessage = null;
+      try {
+        dead.close();
+      } catch {
+        /* 忽略 */
+      }
+    }
+    fire(false);
+    void connect().catch(() => {});
+  }
+
+  setInterval(() => {
+    if (closed || denied) return;
+
+    // 分頁被凍結的時候這個計時器也停著，回到前景第一次跑會看到一個
+    // 很大的時間差 —— 那不是斷線，是剛醒過來。交給 wakeUp 處理就好。
+    if (document.visibilityState !== "visible") {
+      lastPongAt = Date.now();
+      return;
+    }
+
+    if (sock?.readyState !== WebSocket.OPEN) {
+      wakeUp();
+      return;
+    }
+
+    if (Date.now() - lastPongAt > PONG_TIMEOUT_MS) {
+      revive("伺服器超過 " + PONG_TIMEOUT_MS / 1000 + " 秒沒有回音");
+      return;
+    }
+    send({ t: "ping" });
+  }, PING_MS);
 
   // 主控台要等伺服器明確放行才算連上。
   //
@@ -324,6 +453,7 @@ export async function createWebsocketTransport(
     },
 
     async setState(state) {
+      lastSentState = state;
       send({ t: "state", v: state });
     },
 
@@ -370,7 +500,11 @@ export async function createWebsocketTransport(
     },
 
     sendCommand(cmd) {
-      send({ t: "cmd", v: cmd });
+      return send({ t: "cmd", v: cmd });
+    },
+
+    onCommandAck(cb) {
+      return sub(ackCbs, cb);
     },
 
     onCommand(cb) {

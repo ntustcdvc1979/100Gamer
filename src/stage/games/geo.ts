@@ -324,6 +324,20 @@ export function createGeoGame(): Game {
       photos.set(i, img);
     },
 
+    running: () => running,
+
+    /* 這一關沒有暫停：計時一開始，一百支手機就在點地圖了，
+       中途凍住只會讓人以為自己斷線。on=false 回 false，
+       主控台會告訴主持人「這一關不能暫停，要提早結束請按公布」。 */
+    run(on, ctx) {
+      if (!on) return false;
+      if (running || revealed) return true;
+      running = true;
+      endsAt = performance.now() + ROUND_MS;
+      announce(ctx, `${q().name} 在哪裡？在地圖上點一下`);
+      return true;
+    },
+
     key(e, ctx) {
       if (e.key === "t" || e.key === "T") {
         if (revealed) return true;

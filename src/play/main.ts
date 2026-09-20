@@ -18,7 +18,7 @@
 
 import "../shared/base.css";
 import "./play.css";
-import { openRoom, type Room } from "../net/room";
+import { AccessDenied, openRoom, type Room } from "../net/room";
 import { TEAMS, TEAM_IDS, type TeamId } from "../shared/teams";
 import { colorScore, fromHex, toHex, type Rgb } from "../shared/color";
 import { outlinePath } from "../shared/taiwan";
@@ -56,20 +56,34 @@ function seededIndex(seed: number, count: number): number {
 }
 
 async function main(): Promise<void> {
+  /* 第一次就連不上要自己重試，不能叫玩家重新整理。
+     一百支手機在同一分鐘內掃 QR，伺服器打嗝一下是很正常的；
+     而「請重新整理」這句話在現場的實際效果是那個人放棄玩了。
+     連上之後的斷線由 websocket.ts 自己處理，這裡只管開場那一次。 */
   let room: Room;
-  try {
-    room = await openRoom("play");
-  } catch (e) {
-    joinHint.textContent = (e as Error).message || "連不上，請重新整理看看。";
-    console.error(e);
-    return;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      room = await openRoom("play");
+      break;
+    } catch (e) {
+      if (e instanceof AccessDenied) {
+        joinHint.textContent = e.message; // 被踢出去的人，重試也沒用
+        return;
+      }
+      console.error(e);
+      joinHint.textContent = `連線中…（第 ${attempt} 次）`;
+      await new Promise((r) => setTimeout(r, Math.min(1000 * attempt, 5000)));
+    }
   }
+  joinHint.textContent = "";
 
   if (room.kind === "local") {
     setStatus(false, "本機模式");
   } else {
     setStatus(false, "連線中…");
-    room.onConnection((ok) => setStatus(ok, ok ? "已連線" : "連線中斷"));
+    // 「重新連線中」而不是「連線中斷」：程式真的正在重連，
+    // 講「中斷」會讓人去重新整理，那反而更慢（要重新選隊、重新拿權限）。
+    room.onConnection((ok) => setStatus(ok, ok ? "已連線" : "重新連線中…"));
   }
 
   try {

@@ -16,6 +16,9 @@
 </section>
 
 <main class="panel" id="panel" hidden>
+  <p class="offline" id="offline" hidden>⚠️ 連線中斷 —— 現在按什麼都送不出去，等它回復（通常幾秒）。</p>
+  <p class="toast" id="toast" hidden></p>
+
   <p class="insecure" id="insecure" hidden>
     ⚠️ 這台伺服器沒有開啟身分驗證 —— 任何知道網址的人都能控制投影幕。
     正式活動前請照 docs/SETUP.md 設定 <code>GOOGLE_CLIENT_ID</code> 與 <code>ALLOWED_EMAILS</code>。
@@ -38,11 +41,15 @@
 
       <h2>控制</h2>
       <div class="buttons">
-        <button class="ctl primary" id="btnStart">▶ 開始／暫停（T）</button>
+        <!-- 開始和暫停分開：一顆切換鈕的結果取決於投影幕現在是什麼狀態，
+             按下去之前主持人並不確定會得到哪一個。分開之後按幾次都一樣。 -->
+        <button class="ctl primary" id="btnStart">▶ 開始</button>
+        <button class="ctl" id="btnPause">⏸ 暫停</button>
         <button class="ctl" id="btnNext">下一題／下一關 →</button>
         <button class="ctl" id="btnPrev">← 上一關</button>
         <button class="ctl" id="btnReset">↺ 重來這一關（R）</button>
         <button class="ctl board" id="btnBoard">🏆 投影幕顯示排行榜</button>
+        <button class="ctl board on" id="btnQr">📱 QR 顯示中（點一下隱藏）</button>
         <button class="ctl danger" id="btnZero">總分歸零</button>
       </div>
 

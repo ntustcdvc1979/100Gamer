@@ -62,6 +62,19 @@ export interface Game {
    */
   key?(e: KeyboardEvent, ctx: GameContext): boolean;
 
+  /**
+   * 主控台的「開始」「暫停」。跟 T 的差別是它講的是目標狀態，不是切換，
+   * 所以按幾次都一樣 —— 指令重送或手滑按兩下不會把剛開始的一局關掉。
+   *
+   * @returns 有沒有接受。公布型的關卡（地理、找不同、拍照、選邊站）
+   *          沒有「暫停」這個概念，收到 on=false 就回 false，
+   *          主控台會據此告訴主持人「這一關不能暫停」。
+   */
+  run?(on: boolean, ctx: GameContext): boolean;
+
+  /** 這一局現在跑著沒有。主控台靠它把按鈕顯示成實際的狀態。 */
+  running?(): boolean;
+
   /** 主控台調數值設定（例如賽跑一圈要幾下）。 */
   setting?(key: string, value: number): void;
 

@@ -61,7 +61,7 @@ function byTeam(
 }
 
 /* ============================================================
-   一、搖拔河 —— 兩場同時進行
+   一、熱血拔河 —— 兩場同時進行
 
    上半場 火象 vs 水象，下半場 土象 vs 風象。
 
@@ -108,7 +108,7 @@ export function createShakeTugGame(): Game {
 
   return {
     id: "shaketug",
-    title: "搖拔河",
+    title: "熱血拔河",
     brief: `兩場同時比：上半場${TEAMS.A.name} vs ${TEAMS.B.name}，下半場${TEAMS.C.name} vs ${TEAMS.D.name}。搖一下拉一下。T 開始／暫停，R 重來。`,
 
     enter: reset,
@@ -215,6 +215,18 @@ export function createShakeTugGame(): Game {
         g.font = `900 ${Math.round(unit * 4)}px system-ui, "Noto Sans TC", sans-serif`;
         g.fillText("準備中", w / 2, h * 0.5);
       }
+    },
+
+    running: () => running,
+
+    run(on, ctx) {
+      if (winners.every(Boolean)) return false;
+      if (running === on) return true;
+      running = on;
+      // 開始的瞬間重抓基準，不然暫停期間搖的會一次灌進來
+      if (on) meter.drain(ctx);
+      announce(ctx, on ? "搖！用力搖！" : "暫停");
+      return true;
     },
 
     key(e, ctx) {
@@ -336,8 +348,6 @@ export function createShakeRunGame(): Game {
       g.lineTo(cx, cy - ry * 0.7);
       g.stroke();
 
-      const sizes = byTeam(ctx, new Map());
-
       TEAM_IDS.forEach((id, i) => {
         const done = (total[id] ?? 0) / perLap; // 跑了幾圈
         const lane = 0.76 + i * 0.08;
@@ -361,7 +371,10 @@ export function createShakeRunGame(): Game {
         g.fillText(TEAMS[id].name[0] ?? "", px, py);
       });
 
-      // 中間：每隊進度 + 人數。人數要寫出來，因為這一關是比總和，人多佔便宜。
+      // 中間：每隊進度。
+      //
+      // 刻意不寫人數。那是主持人要調參數時才需要的數字（主控台看得到），
+      // 投在大螢幕上只會讓人少的那一隊還沒開始就先洩氣。
       g.textAlign = "left";
       g.textBaseline = "middle";
       TEAM_IDS.forEach((id, i) => {
@@ -369,13 +382,10 @@ export function createShakeRunGame(): Game {
         const done = (total[id] ?? 0) / perLap;
         g.fillStyle = TEAMS[id].color;
         g.font = `900 ${Math.round(unit * 3)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillText(`${TEAMS[id].name}`, cx - unit * 20, y);
-        g.font = `700 ${Math.round(unit * 2.2)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillStyle = "rgba(255,255,255,.75)";
-        g.fillText(`${sizes[id].size} 人`, cx - unit * 12, y);
+        g.fillText(TEAMS[id].name, cx - unit * 14, y);
         g.fillStyle = "#FFFFFF";
-        g.font = `900 ${Math.round(unit * 2.6)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillText(`${done.toFixed(2)} / ${LAPS} 圈`, cx - unit * 5, y);
+        g.font = `900 ${Math.round(unit * 2.8)}px system-ui, "Noto Sans TC", sans-serif`;
+        g.fillText(`${done.toFixed(2)} / ${LAPS} 圈`, cx - unit * 4, y);
       });
 
       g.textAlign = "center";
@@ -403,6 +413,16 @@ export function createShakeRunGame(): Game {
     /** 主控台可以調一圈要幾下。 */
     setting(key, value) {
       if (key === "perLap") perLap = Math.max(100, Math.round(value));
+    },
+
+    running: () => running,
+
+    run(on, ctx) {
+      if (running === on) return true;
+      running = on;
+      if (on) meter.drain(ctx);
+      announce(ctx, on ? "搖！全隊一起衝！" : "暫停");
+      return true;
     },
 
     key(e, ctx) {
@@ -447,6 +467,8 @@ export function createShakeCarrotGame(): Game {
   const meter = new ShakeMeter();
   let running = false;
   let endsAt = 0;
+  /** 暫停時剩下多少毫秒。回來的時候從這裡接著跑。 */
+  let left = CARROT_MS;
   /** 每個人身上還沒湊滿一根的零頭 */
   const carry = new Map<string, number>();
   const carrots: Record<string, number> = {};
@@ -471,6 +493,7 @@ export function createShakeCarrotGame(): Game {
 
   function reset(ctx: GameContext): void {
     running = false;
+    left = CARROT_MS;
     carry.clear();
     flying = [];
     for (const id of TEAM_IDS) carrots[id] = 0;
@@ -584,15 +607,36 @@ export function createShakeCarrotGame(): Game {
       g.globalAlpha = 1;
     },
 
+    running: () => running,
+
+    run(on, ctx) {
+      if (running === on) return true;
+      running = on;
+      if (on) {
+        /* 暫停過就從剩下的時間接著跑，不要重新給滿一分鐘 ——
+           主持人按暫停多半是現場出了狀況（有人跌倒、麥克風壞掉），
+           回來之後把時間重設等於前面白拔了。第一次開始時 left 是滿的。 */
+        endsAt = performance.now() + left;
+        meter.drain(ctx);
+        announce(ctx, "拉！把蘿蔔拔起來！");
+      } else {
+        left = Math.max(0, endsAt - performance.now());
+        announce(ctx, "暫停");
+      }
+      return true;
+    },
+
     key(e, ctx) {
       if (e.key === "t" || e.key === "T") {
         if (!running) {
           running = true;
           endsAt = performance.now() + CARROT_MS;
+          left = CARROT_MS;
           meter.drain(ctx);
           announce(ctx, "拉！把蘿蔔拔起來！");
         } else {
           running = false;
+          left = Math.max(0, endsAt - performance.now());
           announce(ctx, "暫停");
         }
         return true;

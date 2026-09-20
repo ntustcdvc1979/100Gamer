@@ -25,6 +25,7 @@ import {
   type ScoreRow,
 } from "./schema";
 import type { Role, RoomTransport, TransportKind, Unsubscribe } from "./transport";
+import { resolveWsUrl } from "./wsurl";
 
 export { AccessDenied };
 export type { Role };
@@ -57,6 +58,8 @@ export interface Room {
   readonly role: Role;
   /** stage 才有意義：有沒有搶到 host。沒搶到就不要寫 state。 */
   readonly isHost: boolean;
+  /** stage 用。備用投影幕接手成為主投影幕時會呼叫。 */
+  onBecameHost(cb: () => void): Unsubscribe;
   readonly connected: boolean;
 
   onConnection(cb: (ok: boolean) => void): Unsubscribe;
@@ -78,8 +81,10 @@ export interface Room {
   /** play 用。一次性事件，不節流也不覆蓋。 */
   sendAction(action: PlayerAction): Promise<void>;
 
-  /** console 用。 */
-  sendCommand(cmd: Command): void;
+  /** console 用。@returns 真的送出去了沒。false = 連線斷了，要告訴使用者。 */
+  sendCommand(cmd: Command): boolean;
+  /** console 用。伺服器回報這則指令送到幾台投影幕。 */
+  onCommandAck(cb: (ack: { k?: string; stages: number }) => void): Unsubscribe;
   /** stage 用。 */
   onCommand(cb: (cmd: Command) => void): Unsubscribe;
   /** stage 用。已節流，不會洗版。 */
@@ -110,7 +115,7 @@ export interface OpenOptions {
  *   local      兩個都沒有 —— 同一台電腦的分頁之間同步，投影幕永遠跑得動
  */
 async function pickTransport(role: Role, opts: OpenOptions): Promise<RoomTransport> {
-  const wsUrl = import.meta.env.VITE_WS_URL;
+  const wsUrl = resolveWsUrl();
   if (wsUrl) {
     try {
       return await createWebsocketTransport(wsUrl, role, opts.token);
@@ -143,9 +148,29 @@ export async function openRoom(role: Role, opts: OpenOptions = {}): Promise<Room
     );
   }
 
-  const isHost = role === "stage" ? await net.claimHost() : false;
+  /** 從備用變成主投影幕時要通知呼叫端 —— 畫面上的狀態字要跟著改。 */
+  const hostCbs: (() => void)[] = [];
+
+  let isHost = role === "stage" ? await net.claimHost() : false;
   if (role === "stage" && !isHost) {
     console.warn("[p100] 這個房間已經有另一台投影幕了，這一台只能觀看。");
+
+    /* 備用筆電要能真的接手。
+       只在連線時搶一次的話，備用機必須「等主機掛了之後才開」才有用 ——
+       但現場的做法本來就是兩台都先開好擺在那裡等。主機一斷，
+       伺服器把 host 讓出來，卻沒有人會再去搶，於是備用機就這樣
+       一直坐在旁邊看著，主持人按什麼都沒反應。
+       三秒問一次，搶到就接手。搶不到的話這個呼叫在伺服器端只是
+       比對一個字串，成本可以忽略。 */
+    const retry = setInterval(() => {
+      void net.claimHost().then((ok) => {
+        if (!ok) return;
+        clearInterval(retry);
+        isHost = true;
+        console.info("[p100] 接手成為主投影幕");
+        for (const cb of hostCbs) cb();
+      });
+    }, 3000);
   }
 
   // stage 端維護一份完整的 state，publishState 是「疊上去再送」，
@@ -194,7 +219,19 @@ export async function openRoom(role: Role, opts: OpenOptions = {}): Promise<Room
     kind: net.kind,
     uid: net.uid,
     role,
-    isHost,
+    // 用 getter 而不是抄一份：備用投影幕接手時 isHost 會從 false 變 true，
+    // 抄過來的話這裡會永遠停在 false，那台機器就永遠送不出 state。
+    get isHost() {
+      return isHost;
+    },
+
+    onBecameHost(cb) {
+      hostCbs.push(cb);
+      return () => {
+        const i = hostCbs.indexOf(cb);
+        if (i >= 0) hostCbs.splice(i, 1);
+      };
+    },
     get connected() {
       return net.connected;
     },
@@ -243,7 +280,11 @@ export async function openRoom(role: Role, opts: OpenOptions = {}): Promise<Room
     sendAction: (action) => net.sendAction(action),
 
     sendCommand(cmd) {
-      net.sendCommand?.(cmd);
+      return net.sendCommand?.(cmd) ?? false;
+    },
+
+    onCommandAck(cb) {
+      return net.onCommandAck?.(cb) ?? (() => {});
     },
 
     onCommand(cb) {

@@ -20,23 +20,31 @@ import "./console.css";
 import { AccessDenied, openRoom, type Room } from "../net/room";
 import { TEAMS } from "../shared/teams";
 import type { ScoreRow } from "../net/schema";
+import { resolveWsUrl } from "../net/wsurl";
 
 const $ = <T extends HTMLElement>(id: string): T =>
   document.getElementById(id) as T;
 
-/** 順序與 id 都要跟 stage/games/index.ts 一致。 */
+/**
+ * 順序與 id 都要跟 stage/games/index.ts 一致。
+ *
+ * pause: 這一關「暫停」有沒有意義。公布型的關卡（限時作答、拍照、走位）
+ * 一旦開始就不能凍住 —— 玩家看到畫面停住只會以為自己斷線。
+ * 這裡標起來是為了讓按鈕先講清楚，而不是按下去沒反應。
+ */
 const GAMES = [
-  { id: "gather", title: "聚沙成塔", note: "全體協作・搖桿" },
-  { id: "tugofwar", title: "四方拔河", note: "分組對抗・搖桿" },
-  { id: "pickside", title: "選邊站", note: "個人賽・搖桿" },
-  { id: "shaketug", title: "搖拔河", note: "紅vs黃、綠vs藍・搖手機" },
-  { id: "geo", title: "地理達人", note: "個人賽・點地圖・30 秒" },
-  { id: "findchar", title: "文字找不同", note: "個人賽・30 秒" },
-  { id: "shakerun", title: "熱血賽跑", note: "團體賽・搖手機" },
-  { id: "photocolor", title: "拍照找顏色", note: "個人賽・60 秒" },
-  { id: "shakecarrot", title: "拔蘿蔔", note: "分組對抗・拉手機・1 分鐘" },
-  { id: "heatmaster", title: "火候達人", note: "個人賽・六道菜" },
-  { id: "finale", title: "總排行榜", note: "頒獎・一個一個揭曉" },
+  // 聚沙成塔沒有「開始」也沒有「暫停」：一連上就能動，它是暖身關
+  { id: "gather", title: "聚沙成塔", note: "全體協作・搖桿", pause: false, start: false },
+  { id: "tugofwar", title: "四方拔河", note: "分組對抗・搖桿", pause: true },
+  { id: "pickside", title: "選邊站", note: "個人賽・搖桿", pause: false },
+  { id: "shaketug", title: "熱血拔河", note: "紅vs黃、綠vs藍・搖手機", pause: true },
+  { id: "geo", title: "地理達人", note: "個人賽・點地圖・30 秒", pause: false },
+  { id: "findchar", title: "文字找不同", note: "個人賽・30 秒", pause: false },
+  { id: "shakerun", title: "熱血賽跑", note: "團體賽・搖手機", pause: true },
+  { id: "photocolor", title: "拍照找顏色", note: "個人賽・60 秒", pause: false },
+  { id: "shakecarrot", title: "拔蘿蔔", note: "分組對抗・拉手機・1 分鐘", pause: true },
+  { id: "heatmaster", title: "火候達人", note: "個人賽・六道菜", pause: true },
+  { id: "finale", title: "總排行榜", note: "頒獎・一個一個揭曉", pause: true },
 ];
 
 interface GoogleCredentialResponse {
@@ -96,7 +104,7 @@ async function main(): Promise<void> {
   //
   // 真正的防線在 server/index.js 的 verifyConsole()，這裡只負責拿一張 token。
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
-  const wsUrl = import.meta.env.VITE_WS_URL ?? "";
+  const wsUrl = resolveWsUrl();
   const needsAuth = await serverRequiresAuth(wsUrl);
 
   if (needsAuth === true && !clientId) {
@@ -165,7 +173,34 @@ async function connect(token?: string, insecure = false): Promise<void> {
   room.onConnection((ok) => {
     statusEl.classList.toggle("on", ok);
     statusText.textContent = ok ? "已連線" : "連線中斷";
+    // 斷線時把控制區整片淡掉、擋住點擊，並在最上面放一條橫幅。
+    // 右下角那顆小圓點在台上根本看不到，主持人只會一直按沒反應的按鈕。
+    $("panel").classList.toggle("off", !ok);
+    $("offline").hidden = ok;
   });
+
+  /* ============================================================
+     指令要嘛送出去、要嘛講清楚沒送出去
+
+     主控台是一支會息屏、切 app、走進電梯的手機，斷線是常態。
+     以前 sendCommand 在斷線時是靜默失敗的，主持人只會看到「按了沒反應」，
+     然後一直按。現在每一個指令都檢查結果，沒送出去就在畫面上講。
+     ============================================================ */
+  let toastTimer: ReturnType<typeof setTimeout> | null = null;
+  function toast(msg: string): void {
+    const el = $("toast");
+    el.textContent = msg;
+    el.hidden = false;
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (el.hidden = true), 3500);
+  }
+
+  /** @returns 有沒有送出去 */
+  function cmd(c: Parameters<Room["sendCommand"]>[0]): boolean {
+    const ok = room.sendCommand(c);
+    if (!ok) toast("⚠️ 沒送出去 —— 連線中斷，等一下再按一次");
+    return ok;
+  }
 
   /* ---- 關卡選擇 ---- */
   const list = $("games");
@@ -173,52 +208,117 @@ async function connect(token?: string, insecure = false): Promise<void> {
     (g, i) =>
       `<li data-i="${i}"><b>${i + 1}</b><span class="t">${g.title}</span><span class="n">${g.note}</span></li>`,
   ).join("");
+
+  let gotoWaiting: { index: number; timer: ReturnType<typeof setTimeout> } | null = null;
+
   list.addEventListener("click", (e) => {
     const li = (e.target as HTMLElement).closest("li");
     if (!li) return;
     const i = Number(li.dataset.i);
-    room.sendCommand({ k: "goto", index: i });
-    [...list.children].forEach((el, j) => el.classList.toggle("on", i === j));
+    if (!cmd({ k: "goto", index: i })) return;
+
+    // 這裡**刻意不**先把按下去的那一關標亮。
+    //
+    // 樂觀標亮會讓「指令掉了」看起來像成功了 —— 主持人以為換好了，
+    // 投影幕卻還停在上一關。亮起來的唯一依據是投影幕回報的 state。
+    //
+    // 送出去了但兩秒內 state 沒跟上，就代表投影幕那邊出事了，要講。
+    if (gotoWaiting) clearTimeout(gotoWaiting.timer);
+    gotoWaiting = {
+      index: i,
+      timer: setTimeout(() => {
+        gotoWaiting = null;
+        toast("⚠️ 投影幕沒有回應，確認投影幕那台還在線上");
+      }, 2000),
+    };
   });
 
-  // 投影幕是真相來源：它換關卡（例如有人在投影幕上按鍵）時，
-  // 這裡要跟著亮，不能只信自己按過什麼。
+  // 投影幕是真相來源：它換關卡（例如有人直接在投影幕上按鍵）時，
+  /** 目前這一關能不能暫停。投影幕還沒回報過就當作可以，不要先擋。 */
+  let nowGameId = "";
+  const pausable = (): boolean => GAMES.find((x) => x.id === nowGameId)?.pause !== false;
+  const startable = (): boolean => GAMES.find((x) => x.id === nowGameId)?.start !== false;
+
+  // 這裡也要跟著亮，不能只信自己按過什麼。
   room.onState((s) => {
     const g = GAMES.find((x) => x.id === s?.game);
+    nowGameId = s?.game ?? "";
     $("nowGame").textContent = s?.game ? `${g?.title ?? s.game}　第 ${s.round} 回合` : "—";
     $("nowHint").textContent = s?.hint ?? "";
-    // 投影幕上有人直接按鍵換關卡時，左邊的清單也要跟著亮 ——
-    // 主控台不能只信自己按過什麼，投影幕才是真相來源。
     [...list.children].forEach((el, j) => el.classList.toggle("on", GAMES[j]?.id === s?.game));
+
+    /* 開始／暫停的狀態只認投影幕回報的 running。
+       用「我剛剛按了開始」來標亮的話，指令掉了會標成綠的，
+       主持人就不會再按第二次了 —— 那正是要避免的那個失敗。 */
+    const running = s?.running === true;
+    $("btnStart").classList.toggle("on", running);
+    $("btnStart").classList.toggle("na", !startable());
+    $("btnStart").textContent = running ? "▶ 進行中" : "▶ 開始";
+    // 不能暫停的關卡把按鈕變暗，但**不**停用 —— 停用的按鈕按了沒反應，
+    // 也就沒機會解釋為什麼。留著能按，按下去會告訴你原因。
+    $("btnPause").classList.toggle("na", !pausable());
+
+    // 等的那一關真的到了，就把逾時警告取消掉
+    if (gotoWaiting && GAMES[gotoWaiting.index]?.id === s?.game) {
+      clearTimeout(gotoWaiting.timer);
+      gotoWaiting = null;
+    }
+  });
+
+  /* 伺服器回報這則指令送到幾台投影幕。
+     sendCommand 回 true 只代表「進網路了」；投影幕剛好斷線的話
+     指令會在伺服器那裡蒸發。這是唯一問得到答案的地方。 */
+  room.onCommandAck((ack) => {
+    if (ack.stages === 0) toast("⚠️ 投影幕不在線上，這個指令沒有人收到");
   });
 
   /* ---- 按鈕 ---- */
-  const key = (k: string) => () => room.sendCommand({ k: "key", key: k });
-  $("btnStart").addEventListener("click", key("t"));
+  const key = (k: string) => () => cmd({ k: "key", key: k });
+
+  /* 開始／暫停送的是目標狀態（k:"run"），不是切換。
+     按兩下「開始」還是開始，不會把剛開跑的一局關掉 ——
+     而在現場，指令沒反應時主持人一定會再按一次。 */
+  $("btnStart").addEventListener("click", () => {
+    if (!cmd({ k: "run", on: true })) return;
+    if (!startable()) toast("這一關不用按開始，大家一連上就能玩");
+  });
+  $("btnPause").addEventListener("click", () => {
+    if (!cmd({ k: "run", on: false })) return;
+    // 公布型的關卡沒有暫停。投影幕會忽略，這裡先講一聲，
+    // 免得主持人盯著沒有變化的按鈕以為又是斷線。
+    if (!pausable()) toast("這一關不能暫停。要提早結束請按「下一題／下一關」");
+  });
+
   $("btnNext").addEventListener("click", key("ArrowRight"));
   $("btnPrev").addEventListener("click", key("ArrowLeft"));
   $("btnReset").addEventListener("click", key("r"));
 
   let boardOn = false;
   $("btnBoard").addEventListener("click", () => {
+    if (!cmd({ k: "leaderboard", on: !boardOn })) return;
     boardOn = !boardOn;
-    room.sendCommand({ k: "leaderboard", on: boardOn });
     $("btnBoard").classList.toggle("on", boardOn);
-    $("btnBoard").textContent = boardOn
-      ? "🏆 收起排行榜"
-      : "🏆 投影幕顯示排行榜";
+    $("btnBoard").textContent = boardOn ? "🏆 收起排行榜" : "🏆 投影幕顯示排行榜";
+  });
+
+  let qrOn = true;
+  $("btnQr").addEventListener("click", () => {
+    if (!cmd({ k: "qr", on: !qrOn })) return;
+    qrOn = !qrOn;
+    $("btnQr").classList.toggle("on", qrOn);
+    $("btnQr").textContent = qrOn ? "📱 QR 顯示中（點一下隱藏）" : "📱 QR 已隱藏（點一下顯示）";
   });
 
   $("btnZero").addEventListener("click", () => {
     if (!confirm("把所有人的總分歸零？這個動作不能復原。")) return;
-    room.sendCommand({ k: "resetScores" });
+    cmd({ k: "resetScores" });
   });
 
   /* ---- 熱血賽跑：一圈要幾下 ---- */
   $("btnPerLap").addEventListener("click", () => {
     const v = Number($<HTMLInputElement>("perLap").value);
     if (!Number.isFinite(v) || v < 100) return;
-    room.sendCommand({ k: "setting", key: "perLap", value: v });
+    if (!cmd({ k: "setting", key: "perLap", value: v })) return;
     $("btnPerLap").textContent = "已套用";
     setTimeout(() => ($("btnPerLap").textContent = "套用"), 1200);
   });
@@ -236,7 +336,7 @@ async function connect(token?: string, insecure = false): Promise<void> {
     const who = btn.dataset.name ?? "";
     if (!uid) return;
     if (!confirm(`把「${who}」請出遊戲？他要重新掃 QR 才能再進來。`)) return;
-    room.sendCommand({ k: "kick", uid });
+    cmd({ k: "kick", uid });
   });
 
   /* ---- 計分表 ---- */
@@ -305,7 +405,7 @@ interface GeoRow {
 const DEFAULT_GEO: GeoRow[] = [
   { name: "飛機巷", hint: "看飛機降落的那條巷子", lon: 121.2205, lat: 25.0755, photo: "", dirty: false },
   { name: "台北 101", hint: "", lon: 121.5645, lat: 25.034, photo: "", dirty: false },
-  { name: "日月潭", hint: "", lon: 120.915, lat: 23.857, photo: "", dirty: false },
+  { name: "挖子尾", hint: "淡水河出海口的那片紅樹林", lon: 121.4147, lat: 25.1665, photo: "", dirty: false },
   { name: "阿里山", hint: "", lon: 120.803, lat: 23.511, photo: "", dirty: false },
   { name: "太魯閣", hint: "", lon: 121.622, lat: 24.158, photo: "", dirty: false },
   { name: "鵝鑾鼻燈塔", hint: "台灣最南端", lon: 120.851, lat: 21.902, photo: "", dirty: false },

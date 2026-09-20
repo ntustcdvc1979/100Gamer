@@ -198,6 +198,16 @@ export function createTugOfWarGame(): Game {
       }
     },
 
+    running: () => running,
+
+    run(on, ctx) {
+      if (winner) return false;
+      if (running === on) return true; // 已經是想要的狀態，什麼都不用做
+      running = on;
+      publishScores(ctx, on ? "推！往你的顏色方向！" : "暫停");
+      return true;
+    },
+
     key(e, ctx) {
       if (e.key === "t" || e.key === "T") {
         if (winner) return true;

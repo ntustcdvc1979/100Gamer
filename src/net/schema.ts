@@ -100,6 +100,15 @@ export interface RoomState {
   accepting?: boolean;
 
   /**
+   * 這一局在跑沒有。投影幕每幀比對，變了才送。
+   *
+   * 給主控台用的：主持人手上那支手機要顯示「現在是開始還是暫停」，
+   * 而且必須是投影幕回報的真相，不是「我剛剛按了什麼」——
+   * 指令掉了的話，後者會騙人。
+   */
+  running?: boolean;
+
+  /**
    * 拍照找顏色：分數公布了沒。
    *
    * 要跟 accepting 分開，不能用「accepting 從 true 變 false」來推斷：
@@ -184,10 +193,21 @@ export type PlayerAction = ColorAction | FlipAction | TapAction | FindAction;
 export type Command =
   /** 換到第 n 關 */
   | { k: "goto"; index: number }
-  /** 等同主持人在投影幕上按某個鍵（T 開始、R 重來、→ 下一題…） */
+  /** 等同主持人在投影幕上按某個鍵（R 重來、→ 下一題…） */
   | { k: "key"; key: string }
+  /**
+   * 開始／暫停這一局。
+   *
+   * 為什麼不沿用 {k:"key", key:"t"}：T 是「切換」。切換的問題是
+   * 它的結果取決於現在是什麼狀態，而主持人手上那支手機不見得知道 ——
+   * 指令重送一次、或是手滑按兩下，就會把剛開始的一局關掉。
+   * 講「我要它跑」而不是「幫我切一下」，按幾次結果都一樣。
+   */
+  | { k: "run"; on: boolean }
   /** 投影幕上叫出／收起總排行榜 */
   | { k: "leaderboard"; on: boolean }
+  /** 投影幕上顯示／隱藏 QR code */
+  | { k: "qr"; on: boolean }
   /** 把所有人的總分歸零 */
   | { k: "resetScores" }
   /** 把某個人踢出去。伺服器處理，不是投影幕。 */

@@ -29,7 +29,7 @@ export interface GeoQuestion {
 export const GEO_QUESTIONS: GeoQuestion[] = [
   { name: "飛機巷", hint: "看飛機降落的那條巷子", lon: 121.2205, lat: 25.0755 },
   { name: "台北 101", lon: 121.5645, lat: 25.034 },
-  { name: "日月潭", lon: 120.915, lat: 23.857 },
+  { name: "挖子尾", hint: "淡水河出海口的那片紅樹林", lon: 121.4147, lat: 25.1665 },
   { name: "阿里山", lon: 120.803, lat: 23.511 },
   { name: "太魯閣", lon: 121.622, lat: 24.158 },
   { name: "鵝鑾鼻燈塔", hint: "台灣最南端", lon: 120.851, lat: 21.902 },

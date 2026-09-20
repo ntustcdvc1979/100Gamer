@@ -214,12 +214,20 @@ class Room {
     }
   }
 
-  /** 送給某一種角色。inputs/players/scores 靠這個維持非對稱扇出。 */
+  /**
+   * 送給某一種角色。inputs/players/scores 靠這個維持非對稱扇出。
+   * @returns 真的送到幾個人手上。主控台要靠這個數字知道投影幕在不在。
+   */
   toRole(role, msg) {
     const raw = JSON.stringify(msg);
+    let n = 0;
     for (const c of this.clients.values()) {
-      if (c.role === role && c.sock.readyState === 1) c.sock.send(raw);
+      if (c.role === role && c.sock.readyState === 1) {
+        c.sock.send(raw);
+        n++;
+      }
     }
+    return n;
   }
 
   flushInputs() {
@@ -390,6 +398,18 @@ wss.on("connection", (sock, req) => {
       }
 
       switch (m.t) {
+        /* 客戶端的心跳。
+           WebSocket 協定層的 ping/pong 是瀏覽器自動回的，JavaScript
+           看不到，所以手機那邊沒有辦法察覺「這條線其實已經死了」——
+           換基地台、Wi-Fi 切行動網路之後 socket 會卡在半開狀態，
+           readyState 還是 OPEN，畫面照樣顯示「已連線」，但什麼都收不到。
+           主持人按開始，這種人就是不會動的那幾個。
+           所以由客戶端自己打，收不到回音就重連。 */
+        case "ping": {
+          room.send(client, { t: "pong" });
+          break;
+        }
+
         case "claimHost": {
           const ok2 = room.host === null || room.host === uid;
           if (ok2) room.host = uid;
@@ -452,7 +472,12 @@ wss.on("connection", (sock, req) => {
             else room.geoPhotos.delete(m.v.index);
           }
 
-          room.toRole("stage", { t: "cmd", v: m.v });
+          /* 回報有幾台投影幕真的收到了。
+             沒有這一行的話，主控台按「開始」只知道「送出去了」，
+             不知道「有人接到嗎」—— 投影幕如果剛好斷線，指令會在這裡
+             安靜地蒸發，主持人卻在台上等一個永遠不會發生的開始。 */
+          const got = room.toRole("stage", { t: "cmd", v: m.v });
+          room.send(client, { t: "cmdAck", k: m.v?.k, stages: got });
           break;
         }
 

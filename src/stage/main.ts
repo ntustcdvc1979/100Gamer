@@ -41,9 +41,17 @@ async function main(): Promise<void> {
     setStatus(false, "本機模式");
   } else {
     setStatus(false, "連線中…");
-    room.onConnection((ok) => setStatus(ok, ok ? "已連線" : "連線中斷"));
+    // 備用機不能顯示「已連線」—— 那會讓人以為該看這一台。
+    room.onConnection((ok) =>
+      setStatus(ok, !ok ? "連線中斷" : room.isHost ? "已連線" : "備用中"),
+    );
   }
-  if (!room.isHost) setStatus(false, "已有另一台投影幕");
+  if (!room.isHost) {
+    setStatus(false, "備用中（已有另一台投影幕）");
+    // 主機掛掉時這一台會自動接手，接手了要講 ——
+    // 不然現場沒有人知道該看哪一台。
+    room.onBecameHost(() => setStatus(true, "已接手，這台是主投影幕"));
+  }
 
   const url = playUrl();
   $("url").textContent = url;
@@ -66,6 +74,12 @@ async function main(): Promise<void> {
   let index = -1;
   let game: Game | null = null;
   let showLeaderboard = false;
+  /** 主持人有沒有把 QR 打開。關卡自己也可以要求收起來（hideQr）。 */
+  let qrWanted = true;
+
+  function syncQr(): void {
+    $("qrPanel").hidden = game?.hideQr === true || !qrWanted;
+  }
 
   /**
    * 排行榜是畫在 canvas 上的，但 HUD 與 QR 是 DOM，會浮在 canvas 上面。
@@ -88,8 +102,7 @@ async function main(): Promise<void> {
     $("gameTitle").textContent = game.title;
     // brief 是給主持人看的操作說明（按什麼鍵、怎麼換題），
     // 觀眾不需要，所以只留在 Esc 的關卡選單裡，不印在投影幕上。
-    // 有些關卡（地理達人、頒獎）會用到右上角那一塊，QR 得收起來
-    $("qrPanel").hidden = game.hideQr === true;
+    syncQr();
     renderMenu();
   }
 
@@ -159,6 +172,26 @@ async function main(): Promise<void> {
   // 一次性事件（拍到的顏色、翻面的時間）交給當前的遊戲處理
   room.onActions((uid, action) => game?.action?.(uid, action, ctx));
 
+  /**
+   * 把「這一局在跑沒有」回報給主控台。
+   *
+   * 統一在這裡送，不要交給各個關卡自己 publish：「時間到自動停」那條路
+   * 很容易漏掉，主控台的按鈕就會停在錯的狀態 —— 而主持人正是看著那個
+   * 按鈕決定要不要再按一次的。
+   *
+   * 按下指令時立刻叫一次（要快），另外掛在 500ms 的心跳上（要漏不掉）。
+   * 心跳刻意用 setInterval 而不是 rAF：投影幕視窗被縮小或切到背景時
+   * rAF 會整個停掉，計分表當年就是為了這件事才搬出 rAF 的。
+   * publishState 會過濾掉沒變的欄位，所以多叫幾次不會產生流量。
+   */
+  let lastRunning = false;
+  function reportRunning(): void {
+    const isRunning = game?.running?.() ?? false;
+    if (isRunning === lastRunning) return;
+    lastRunning = isRunning;
+    room.publishState({ running: isRunning });
+  }
+
   // 主控台的遙控。這裡不檢查權限 —— 伺服器只把驗過的主控台的指令轉過來。
   room.onCommand((cmd) => {
     switch (cmd.k) {
@@ -168,8 +201,22 @@ async function main(): Promise<void> {
       case "key":
         applyKey(new KeyboardEvent("keydown", { key: cmd.key }));
         break;
+      case "run":
+        /* 沒實作 run 的關卡（聚沙成塔）就當作沒有開始這回事。
+           回傳 false 代表這一關不支援（多半是「不能暫停」），
+           主控台會據此告訴主持人，而不是讓按鈕看起來沒反應。 */
+        game?.run?.(cmd.on, ctx);
+        // 立刻回報，不要等下一個 500ms 的心跳。
+        // 主持人剛按完那一下正是最需要看到回應的時候 —— 慢半秒，
+        // 他就會懷疑指令掉了然後再按一次。
+        reportRunning();
+        break;
       case "leaderboard":
         setLeaderboard(cmd.on);
+        break;
+      case "qr":
+        qrWanted = cmd.on;
+        syncQr();
         break;
       case "resetScores":
         field.clearTotals();
@@ -194,7 +241,10 @@ async function main(): Promise<void> {
   // 計分表用 setInterval 而不是塞在 rAF 迴圈裡：分頁一被切到背景 rAF 就停，
   // 主控台會整個瞎掉。setInterval 在背景分頁還是會跑（會被降到 1 Hz，
   // 對一張 2 Hz 的計分表完全夠）。
-  const scoreTimer = setInterval(() => room.publishScores(scoreRows()), 500);
+  const scoreTimer = setInterval(() => {
+    room.publishScores(scoreRows());
+    reportRunning();
+  }, 500);
   window.addEventListener("pagehide", () => clearInterval(scoreTimer));
 
   let last = performance.now();
