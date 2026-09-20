@@ -19,8 +19,7 @@
    ============================================================ */
 
 import WebSocket from "ws";
-import { SETTINGS } from "../src/config/settings";
-import { teamForSeat } from "../src/shared/teams";
+import { TEAM_IDS } from "../src/shared/teams";
 import { fromHex, toHex } from "../src/shared/color";
 
 const args = new Map<string, string>();
@@ -72,8 +71,10 @@ function connect(i: number): void {
   let doneThisRound = false;
   let lastRoundKey = "";
   let flipTimer: ReturnType<typeof setTimeout> | null = null;
-
-  sock.on("open", () => sock.send(JSON.stringify({ t: "seat" })));
+  let shakes = 0;
+  let shaking = false;
+  /** 每一幀有多少機率搖一下。0.15 ≈ 3 下/秒，0.5 ≈ 10 下/秒。 */
+  const shakeRate = 0.1 + Math.random() * 0.4;
 
   sock.on("message", (raw) => {
     let m: { t?: string; n?: number; v?: Record<string, unknown> };
@@ -83,13 +84,15 @@ function connect(i: number): void {
       return;
     }
 
-    if (m.t === "seat" && typeof m.n === "number" && !joined) {
+    if (m.t === "welcome" && !joined) {
       joined = true;
       const name = `${NAMES[i % NAMES.length]}${Math.floor(i / NAMES.length) || ""}`;
+      // 玩家現在自己選隊，假玩家就平均分配 —— 現場不會這麼平均，
+      // 但彩排要看的是版面排不排得下，不是分隊公不公平。
       sock.send(
         JSON.stringify({
           t: "player",
-          v: { name, team: teamForSeat(m.n, SETTINGS.teamCount), joinedAt: Date.now() },
+          v: { name, team: TEAM_IDS[i % TEAM_IDS.length], joinedAt: Date.now() },
         }),
       );
 
@@ -97,10 +100,12 @@ function connect(i: number): void {
         if (sock.readyState !== WebSocket.OPEN) return;
         // 慢慢轉向，看起來像有人在操作而不是雜訊
         angle += (Math.random() - 0.5) * 0.6;
+        // 搖動的關卡：每個人搖的速度不一樣，分數才會拉得開
+        if (shaking) shakes += Math.random() < shakeRate ? 1 : 0;
         sock.send(
           JSON.stringify({
             t: "input",
-            v: { v: [Math.cos(angle), Math.sin(angle)], t: Date.now() },
+            v: { v: [Math.cos(angle), Math.sin(angle)], t: Date.now(), s: shakes },
           }),
         );
       }, 1000 / HZ);
@@ -115,6 +120,8 @@ function connect(i: number): void {
       round?: number;
       targetColor?: string;
       targetSeconds?: number;
+      rows?: number;
+      cols?: number;
     };
 
     const roundKey = `${s.game}:${s.round}:${s.accepting}`;
@@ -124,7 +131,36 @@ function connect(i: number): void {
       if (flipTimer) clearTimeout(flipTimer);
       flipTimer = null;
     }
+    shaking = s.control === "shake" && s.accepting === true;
     if (!s.accepting || doneThisRound) return;
+
+    if (s.control === "tap") {
+      doneThisRound = true;
+      setTimeout(
+        () => {
+          if (sock.readyState !== WebSocket.OPEN) return;
+          sock.send(
+            JSON.stringify({ t: "action", v: { k: "tap", x: Math.random(), y: Math.random() } }),
+          );
+        },
+        2000 + Math.random() * 15000,
+      );
+    }
+
+    if (s.control === "find" && typeof s.rows === "number" && typeof s.cols === "number") {
+      doneThisRound = true;
+      const cells = s.rows * s.cols;
+      const at = 1500 + Math.random() * 20000;
+      setTimeout(() => {
+        if (sock.readyState !== WebSocket.OPEN) return;
+        sock.send(
+          JSON.stringify({
+            t: "action",
+            v: { k: "find", i: Math.floor(Math.random() * cells), ms: at },
+          }),
+        );
+      }, at);
+    }
 
     if (s.control === "camera" && s.targetColor) {
       doneThisRound = true;
@@ -145,7 +181,7 @@ function connect(i: number): void {
       );
     }
 
-    if ((s.control === "flip" || s.control === "lift") && s.targetSeconds) {
+    if (s.control === "motion" && s.targetSeconds) {
       doneThisRound = true;
       const target = s.targetSeconds * 1000;
       // 誤差常態一點：大多數人差半秒內，少數人差很多

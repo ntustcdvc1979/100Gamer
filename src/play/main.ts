@@ -1,30 +1,32 @@
 /* ============================================================
    手機端
 
-   這一頁的三條紀律：
+   三條紀律：
      1. 只訂閱 state，永遠不訂閱 players / inputs。
      2. 輸入交給 room.pushInput()／room.sendAction()，節流在連線層做掉。
      3. 頁面要小。100 人同時走行動網路連進來，每 10 KB 都有感。
 
    畫面依 state.control 換：
-     （沒填）  什麼都不顯示，只有一句提示。搖桿不是預設值 ——
-               大廳、等待的時候不該憑空冒出一個搖桿讓人亂推。
+     （沒填）  什麼都不顯示，只有一句提示。搖桿不是預設值。
      joystick  虛擬搖桿
-     camera    拍照找顏色 —— 可以重拍，但只能上傳一次
-     flip      火候達人（煎）—— 翻面
-     lift      火候達人（炸）—— 把手機提起來
+     camera    拍照找顏色 —— 可以重拍，只能上傳一次
+     motion    火候達人 —— 在指定秒數做一次動作（翻面／提起／晃動）
+     shake     一直搖（拔河／賽跑／拔蘿蔔）
+     tap       在台灣地圖上點位置（地理達人）
+     find      在字陣裡找出不一樣的字
    ============================================================ */
 
 import "../shared/base.css";
 import "./play.css";
 import { openRoom, type Room } from "../net/room";
-import { SETTINGS } from "../config/settings";
-import { TEAMS, teamForSeat, type TeamId } from "../shared/teams";
+import { TEAMS, TEAM_IDS, type TeamId } from "../shared/teams";
 import { colorScore, fromHex, toHex, type Rgb } from "../shared/color";
+import { outlinePath } from "../shared/taiwan";
 import { createJoystick } from "./input";
 import { keepAwake } from "./wakelock";
 import { readPhoto } from "./camera";
 import { requestMotion, watchMotion } from "./flip";
+import { createShakeCounter } from "./shake";
 import type { RoomState } from "../net/schema";
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -42,12 +44,23 @@ function setStatus(ok: boolean, text: string): void {
   statusText.textContent = text;
 }
 
+/** 種子亂數，要跟 stage/games/findchar.ts 的算法一模一樣。 */
+function seededIndex(seed: number, count: number): number {
+  let x = seed >>> 0;
+  x ^= x << 13;
+  x >>>= 0;
+  x ^= x >> 17;
+  x ^= x << 5;
+  x >>>= 0;
+  return x % count;
+}
+
 async function main(): Promise<void> {
   let room: Room;
   try {
     room = await openRoom("play");
   } catch (e) {
-    joinHint.textContent = "連不上，請重新整理看看。";
+    joinHint.textContent = (e as Error).message || "連不上，請重新整理看看。";
     console.error(e);
     return;
   }
@@ -65,12 +78,40 @@ async function main(): Promise<void> {
     /* 無痕模式，忽略 */
   }
 
-  const canJoin = (): boolean => nameInput.value.trim().length > 0;
+  /* ---------- 選隊 ---------- */
+  let picked: TeamId | null = null;
+  const teamBox = $("teams");
+  teamBox.innerHTML = TEAM_IDS.map(
+    (id) =>
+      `<button type="button" class="teamBtn" data-t="${id}" style="--c:${TEAMS[id].color}">` +
+      `<span class="tn">${TEAMS[id].name}</span><span class="tc" data-c="${id}">—</span></button>`,
+  ).join("");
+
+  teamBox.addEventListener("click", (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLElement>(".teamBtn");
+    if (!btn) return;
+    picked = btn.dataset.t as TeamId;
+    [...teamBox.children].forEach((el) =>
+      el.classList.toggle("on", (el as HTMLElement).dataset.t === picked),
+    );
+    refresh();
+  });
+
+  // 人數顯示：讓大家自己去補人少的隊。沒有這個的話一定會有一隊爆滿。
+  room.onState((s) => {
+    const counts = s?.teamCounts ?? [];
+    TEAM_IDS.forEach((id, i) => {
+      const el = teamBox.querySelector(`[data-c="${id}"]`);
+      if (el) el.textContent = `${counts[i] ?? 0} 人`;
+    });
+  });
+
+  const canJoin = (): boolean => nameInput.value.trim().length > 0 && picked !== null;
   const refresh = (): void => {
     joinBtn.disabled = !canJoin();
+    joinHint.textContent = picked === null ? "還要選一隊" : "";
   };
   nameInput.addEventListener("input", refresh);
-  joinHint.textContent = "";
   refresh();
 
   nameInput.addEventListener("keydown", (e) => {
@@ -78,11 +119,12 @@ async function main(): Promise<void> {
   });
 
   joinBtn.addEventListener("click", () => {
-    void join(room, nameInput.value.trim());
+    if (!picked) return;
+    void join(room, nameInput.value.trim(), picked);
   });
 }
 
-async function join(room: Room, name: string): Promise<void> {
+async function join(room: Room, name: string, team: TeamId): Promise<void> {
   joinBtn.disabled = true;
   joinHint.textContent = "加入中…";
   try {
@@ -91,12 +133,7 @@ async function join(room: Room, name: string): Promise<void> {
     /* 忽略 */
   }
 
-  let team: TeamId;
   try {
-    // 座位號用 transaction 發，100 人同時按「加入」也不會撞號，
-    // 隊伍人數因此保證平均。
-    const seat = await room.takeSeat();
-    team = teamForSeat(seat, SETTINGS.teamCount);
     await room.savePlayer({ name, team, joinedAt: Date.now() });
   } catch (e) {
     console.error(e);
@@ -123,24 +160,38 @@ function startPlaying(room: Room, name: string, team: TeamId): void {
 
   const stick = createJoystick($("pad"), $("knob"));
   const motion = watchMotion();
+  const shaker = createShakeCounter();
 
   const say = $("say");
   const quads = $("quads");
-  const idlePane = $("idlePane");
-  const padPane = $("pad");
-  const camPane = $("camPane");
-  const motionPane = $("motionPane");
+  const panes = {
+    idle: $("idlePane"),
+    joystick: $("pad"),
+    camera: $("camPane"),
+    motion: $("motionPane"),
+    shake: $("shakePane"),
+    tap: $("tapPane"),
+    find: $("findPane"),
+  };
 
   let control: RoomState["control"] | undefined;
+  let gesture: RoomState["gesture"] = "flip";
   let accepting = false;
   let targetHex = "";
   let armed = false;
   let startedAt = 0;
 
-  /* ---------- 拍照找顏色：可以重拍，只能上傳一次 ---------- */
+  /* ---------- 感應器狀態（火候達人與搖動都看這一格）---------- */
+  const sensorEl = $("sensor");
+  setInterval(() => {
+    const live = motion.sensing || shaker.sensing;
+    sensorEl.classList.toggle("on", live);
+    sensorEl.textContent = live ? "✓ 已偵測到感應器" : "✗ 沒有偵測到感應器，請用按鈕";
+  }, 500);
+
+  /* ---------- 拍照找顏色 ---------- */
   const fileInput = $<HTMLInputElement>("shot");
   const sendBtn = $<HTMLButtonElement>("sendShot");
-  /** 手上這張還沒送出去的照片 */
   let pending: { rgb: Rgb; thumb: string } | null = null;
   let uploaded = false;
 
@@ -157,7 +208,7 @@ function startPlaying(room: Room, name: string, team: TeamId): void {
 
   fileInput.addEventListener("change", () => {
     const file = fileInput.files?.[0];
-    fileInput.value = ""; // 同一張照片要能再選一次
+    fileInput.value = "";
     if (!file || !accepting || uploaded) return;
     void (async () => {
       $("camHint").textContent = "處理中…";
@@ -171,7 +222,7 @@ function startPlaying(room: Room, name: string, team: TeamId): void {
         swatch.style.background = toHex(shot.rgb);
         swatch.hidden = false;
         sendBtn.hidden = false;
-        // 不顯示分數 —— 分數要等時間到才公布，不然大家會站著微調刷分
+        // 不顯示分數 —— 要等時間到才公布
         $("camHint").textContent = "可以重拍，滿意再上傳";
       } catch (e) {
         console.error(e);
@@ -213,61 +264,123 @@ function startPlaying(room: Room, name: string, team: TeamId): void {
         : "這支手機沒有感測器，用下面的按鈕";
     })();
   });
+  $("armBtn2").addEventListener("click", () => armBtn.click());
 
   actBtn.addEventListener("click", () => {
     if (!armed) return;
     sendAct(performance.now() - startedAt, "tap");
   });
 
+  /* ---------- 搖手機 ---------- */
+  $("shakeBtn").addEventListener("click", () => shaker.bump());
+
+  /* ---------- 地理達人：台灣地圖 ---------- */
+  const mapSvg = $("map");
+  let tapped = false;
+  mapSvg.innerHTML =
+    `<svg viewBox="0 0 100 170" width="100%" height="100%" aria-label="台灣地圖">` +
+    `<path d="${outlinePath(100, 170)}" fill="rgba(255,255,255,.22)" stroke="currentColor" stroke-width="1.2"/>` +
+    `<circle id="mapPin" r="3.5" fill="#fff" stroke="currentColor" stroke-width="1.4" style="display:none"/>` +
+    `</svg>`;
+
+  mapSvg.addEventListener("click", (e) => {
+    if (!accepting || tapped) return;
+    const r = mapSvg.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width;
+    const y = (e.clientY - r.top) / r.height;
+    if (x < 0 || x > 1 || y < 0 || y > 1) return;
+    tapped = true;
+    const pin = mapSvg.querySelector<SVGCircleElement>("#mapPin");
+    if (pin) {
+      pin.setAttribute("cx", String(x * 100));
+      pin.setAttribute("cy", String(y * 170));
+      pin.style.display = "";
+    }
+    $("tapHint").textContent = "已送出，等公布";
+    void room.sendAction({ k: "tap", x, y });
+  });
+
+  /* ---------- 文字找不同 ---------- */
+  const findGrid = $("findGrid");
+  let findDone = false;
+  let findStartedAt = 0;
+
+  function buildGrid(s: RoomState): void {
+    const rows = s.rows ?? 6;
+    const cols = s.cols ?? 8;
+    const normal = s.options?.[0] ?? "人";
+    const odd = s.options?.[1] ?? "入";
+    const oddAt = seededIndex(s.seed ?? 1, rows * cols);
+    findGrid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    findGrid.innerHTML = Array.from({ length: rows * cols }, (_, i) =>
+      `<button type="button" class="cell" data-i="${i}">${i === oddAt ? odd : normal}</button>`,
+    ).join("");
+    findDone = false;
+    findStartedAt = performance.now();
+    $("findHint").textContent = "";
+  }
+
+  findGrid.addEventListener("click", (e) => {
+    if (!accepting || findDone) return;
+    const cell = (e.target as HTMLElement).closest<HTMLElement>(".cell");
+    if (!cell) return;
+    findDone = true;
+    cell.classList.add("picked");
+    $("findHint").textContent = "已送出，等公布";
+    void room.sendAction({ k: "find", i: Number(cell.dataset.i), ms: performance.now() - findStartedAt });
+  });
+
   /* ---------- state：手機唯一被允許訂閱的東西 ---------- */
+  let lastRoundKey = "";
   room.onState((s) => {
     say.textContent = s?.hint ?? "";
     const next = s?.control;
     const wasAccepting = accepting;
     accepting = s?.accepting ?? false;
     targetHex = s?.targetColor ?? "";
+    gesture = s?.gesture ?? "flip";
 
     if (next !== control) {
       control = next;
-      // 沒有 control 就什麼都不顯示，只留一句提示
-      idlePane.hidden = control !== undefined;
-      padPane.hidden = control !== "joystick";
-      camPane.hidden = control !== "camera";
-      motionPane.hidden = control !== "flip" && control !== "lift";
+      for (const [k, el] of Object.entries(panes)) {
+        el.hidden = k !== (control ?? "idle");
+      }
       resetCamera();
       $("motionHint").textContent = "";
       armed = false;
       motion.stop();
     }
 
+    // 感應器那一格只有用得到的關卡才顯示
+    sensorEl.hidden = control !== "motion" && control !== "shake";
+
     if (control === "camera") {
       $("camTarget").style.background = targetHex || "#888";
-      $<HTMLLabelElement>("shotLabel").classList.toggle("off", !accepting || uploaded);
-      // 換題目了就解鎖，可以重新拍
+      $("shotLabel").classList.toggle("off", !accepting || uploaded);
       if (accepting && !wasAccepting) resetCamera();
       if (s?.revealed && uploaded && pending) {
-        // 分數是這時候才算的，手機自己用同一套公式算一次就好，
-        // 不用為了這個多開一條每人一份的通道。
         $("camHint").textContent = `你的分數 ${colorScore(fromHex(targetHex), pending.rgb)} 分`;
       }
     }
 
-    if (control === "flip" || control === "lift") {
-      const lift = control === "lift";
+    if (control === "motion") {
+      const verb = gesture === "lift" ? "把手機提起來" : gesture === "shake" ? "晃手機" : "把手機翻面";
       $("motionTarget").textContent = s?.targetSeconds ? `${s.targetSeconds} 秒` : "—";
-      $("motionVerb").textContent = lift ? "把手機提起來" : "把手機翻面";
-      actBtn.textContent = lift ? "起鍋！" : "翻面！";
-      $("motionFine").textContent = lift
-        ? "手機平放在桌上或手上，時間到整支拿起來。感測器不能用就按上面的按鈕。"
-        : "手機螢幕朝上放好，時間到翻過來。感測器不能用就按上面的按鈕。";
+      $("motionVerb").textContent = verb;
+      actBtn.textContent = verb + "！";
+      $("motionFine").textContent =
+        gesture === "flip"
+          ? "手機螢幕朝上放好，時間到翻過來。感測器不能用就按上面的按鈕。"
+          : gesture === "lift"
+            ? "手機平放在桌上或手上，時間到整支拿起來。感測器不能用就按上面的按鈕。"
+            : "手機拿好，時間到用力晃幾下。感測器不能用就按上面的按鈕。";
 
-      // 這一輪剛開始：重新武裝
       if (accepting && !wasAccepting) {
         armed = true;
         startedAt = performance.now();
         actBtn.disabled = false;
-        $("motionHint").textContent = lift ? "放好，自己數秒數" : "螢幕朝上放好，自己數秒數";
-        motion.start(lift ? "lift" : "flip", (ms) => sendAct(ms, "motion"));
+        $("motionHint").textContent = "放好，自己數秒數";
+        motion.start(gesture, (ms) => sendAct(ms, "motion"));
       }
       if (!accepting) {
         armed = false;
@@ -276,8 +389,35 @@ function startPlaying(room: Room, name: string, team: TeamId): void {
       }
     }
 
+    if (control === "tap") {
+      $("tapPlace").textContent = s?.place ?? "";
+      const img = $<HTMLImageElement>("tapImg");
+      const src = s?.placeImg ?? "";
+      img.hidden = !src;
+      if (src) img.src = import.meta.env.BASE_URL + src;
+      // 換題目就解鎖
+      const key = `${s?.game}:${s?.round}`;
+      if (key !== lastRoundKey) {
+        lastRoundKey = key;
+        tapped = false;
+        const pin = mapSvg.querySelector<SVGCircleElement>("#mapPin");
+        if (pin) pin.style.display = "none";
+      }
+      // 提示要每次都更新，不能只在換題目時設 ——
+      // 主持人按開始的時候題號沒變，提示就會卡在「等主持人開始」。
+      if (!tapped) $("tapHint").textContent = accepting ? "在地圖上點一下" : "等主持人開始";
+    }
+
+    if (control === "find") {
+      const key = `${s?.game}:${s?.round}:${s?.seed}`;
+      if (s && key !== lastRoundKey) {
+        lastRoundKey = key;
+        buildGrid(s);
+      }
+    }
+
     const options = s?.options ?? [];
-    quads.hidden = options.length !== 4;
+    quads.hidden = control !== "joystick" || options.length !== 4;
     if (!quads.hidden) {
       [...quads.children].forEach((el, i) => {
         el.textContent = options[i] ?? "";
@@ -288,11 +428,14 @@ function startPlaying(room: Room, name: string, team: TeamId): void {
     }
   });
 
-  // 每幀讀搖桿、丟給連線層。節流在 room 裡面做，這裡可以放心每幀呼叫。
+  // 每幀讀搖桿／搖動計數，丟給連線層。節流在 room 裡面做。
   let raf = 0;
   const loop = (): void => {
     if (control === "joystick") {
       room.pushInput([stick.value[0], stick.value[1]]);
+    } else if (control === "shake") {
+      room.pushInput([0, 0], shaker.count);
+      $("shakeCount").textContent = String(shaker.count);
     }
     raf = requestAnimationFrame(loop);
   };
@@ -302,6 +445,7 @@ function startPlaying(room: Room, name: string, team: TeamId): void {
     cancelAnimationFrame(raf);
     stick.dispose();
     motion.dispose();
+    shaker.dispose();
     room.dispose();
   });
 }

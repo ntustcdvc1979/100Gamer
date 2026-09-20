@@ -96,12 +96,6 @@ export interface RoomTransport {
 
   /* ---- 其他 ---- */
 
-  /**
-   * 拿一個座位號。用 transaction 遞增，100 人同時加入也不會撞號，
-   * 隊伍人數因此保證平均（用 uid hash 分隊在 100 人時偏差可能到 ±5）。
-   */
-  takeSeat(): Promise<number>;
-
   /** 活動結束或重跑一場：清掉這個房間。 */
   clearRoom(): Promise<void>;
 }

@@ -30,11 +30,10 @@ interface Snapshot {
   players: Bag<Player>;
   inputs: Bag<Input>;
   scores: ScoreRow[];
-  seat: number;
 }
 
 function emptySnapshot(): Snapshot {
-  return { host: null, state: null, players: {}, inputs: {}, scores: [], seat: 0 };
+  return { host: null, state: null, players: {}, inputs: {}, scores: []};
 }
 
 function newId(): string {
@@ -224,14 +223,6 @@ export function createLocalTransport(): RoomTransport {
       const un = sub(scoreCbs, cb);
       cb(read().scores);
       return un;
-    },
-
-    async takeSeat() {
-      const snap = read();
-      const seat = snap.seat;
-      snap.seat = seat + 1;
-      write(snap);
-      return seat;
     },
 
     async clearRoom() {

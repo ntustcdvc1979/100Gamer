@@ -125,12 +125,6 @@ export async function createFirebaseTransport(options: FirebaseOptions): Promise
     // 主控台需要伺服器端驗身分與點對點轉送，Firebase 這個備援做不到。
     // room.ts 會在有人想在這個模式下開主控台時給出明確的錯誤。
 
-    async takeSeat(): Promise<number> {
-      const result = await runTransaction(at("seat"), (current: number | null) => (current ?? 0) + 1);
-      const next = (result.snapshot.val() as number | null) ?? 1;
-      return next - 1;
-    },
-
     async clearRoom(): Promise<void> {
       await remove(ref(db, root));
     },

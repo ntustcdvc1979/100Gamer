@@ -34,6 +34,8 @@ export interface Actor {
   flag: boolean;
   /** 遊戲自己指定的顏色，蓋掉隊伍色。拍照找顏色用它顯示每個人拍到什麼。 */
   tint: string | null;
+  /** 手機回報的累計搖動數。搖手機那幾關自己算差值，見 games/shake.ts。 */
+  shakes: number;
 }
 
 /** 多久沒動就當這個人在放空，畫淡一點。 */
@@ -76,6 +78,7 @@ export class Field {
         total: 0,
         flag: false,
         tint: null,
+        shakes: 0,
       };
       this.actors.set(uid, a);
       const early = this.pending.get(uid);
@@ -92,12 +95,13 @@ export class Field {
   }
 
   /** 收到搖桿輸入。玩家名單還沒到的話先收著，upsert 的時候補上。 */
-  applyInput(uid: string, vx: number, vy: number, seenAt: number): void {
+  applyInput(uid: string, vx: number, vy: number, seenAt: number, shakes?: number): void {
     const a = this.actors.get(uid);
     if (a) {
       a.vx = vx;
       a.vy = vy;
       a.seenAt = seenAt;
+      if (shakes !== undefined) a.shakes = shakes;
     } else {
       this.pending.set(uid, { vx, vy, seenAt });
     }

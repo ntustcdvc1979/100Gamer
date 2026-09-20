@@ -32,7 +32,6 @@ type ServerMsg =
   | { t: "action"; uid: string; v: PlayerAction }
   | { t: "cmd"; v: Command }
   | { t: "scores"; v: ScoreRow[] }
-  | { t: "seat"; n: number }
   | { t: "host"; ok: boolean };
 
 /** 主控台驗不過的時候丟這個，呼叫端才能顯示「這個帳號沒有權限」。 */
@@ -76,7 +75,6 @@ export async function createWebsocketTransport(
   let myPlayer: Partial<Player> | null = null;
   let wantHost = false;
 
-  let seatWaiter: ((n: number) => void) | null = null;
   let hostWaiter: ((ok: boolean) => void) | null = null;
 
   function url(): string {
@@ -160,11 +158,6 @@ export async function createWebsocketTransport(
       case "scores":
         lastScores = msg.v ?? [];
         for (const cb of scoreCbs) cb(lastScores);
-        break;
-
-      case "seat":
-        seatWaiter?.(msg.n);
-        seatWaiter = null;
         break;
 
       case "host":
@@ -331,19 +324,6 @@ export async function createWebsocketTransport(
       const un = sub(scoreCbs, cb);
       if (lastScores.length) cb(lastScores);
       return un;
-    },
-
-    takeSeat() {
-      return new Promise<number>((resolve, reject) => {
-        seatWaiter = resolve;
-        send({ t: "seat" });
-        setTimeout(() => {
-          if (seatWaiter === resolve) {
-            seatWaiter = null;
-            reject(new Error("伺服器沒有回座位號"));
-          }
-        }, 5000);
-      });
     },
 
     async clearRoom() {

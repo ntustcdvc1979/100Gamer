@@ -11,11 +11,12 @@
 
 <section class="screen" id="joinScreen">
   <h1>加入遊戲</h1>
-  <p class="lede">輸入一個名字，暱稱就好。</p>
+  <p class="lede">輸入名字，然後選一隊。</p>
   <input id="name" class="name" type="text" maxlength="8" placeholder="你的名字"
          autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go">
+  <div class="teams" id="teams"></div>
   <button class="btn" id="joinBtn" disabled>加入</button>
-  <p class="hint" id="joinHint">連線中…</p>
+  <p class="hint" id="joinHint"></p>
 </section>
 
 <section class="screen" id="playScreen" hidden>
@@ -24,10 +25,10 @@
     <div class="who" id="myName">—</div>
   </header>
 
-  <!-- 現在要幹嘛。後排看不到投影幕，就看這一行。 -->
   <p class="say" id="say"></p>
+  <p class="sensor" id="sensor" hidden></p>
 
-  <!-- 沒有輪到操作的時候。搖桿不是預設值。 -->
+  <!-- 沒輪到操作 -->
   <div class="pane" id="idlePane">
     <div class="waiting">✦</div>
     <p class="paneHint">看投影幕，等主持人</p>
@@ -42,34 +43,55 @@
     <p class="padHint" id="padHint">按住並移動</p>
   </div>
 
-  <!-- 拍照找顏色。可以重拍，只能上傳一次。 -->
+  <!-- 拍照找顏色 -->
   <div class="pane" id="camPane" hidden>
     <p class="paneLabel">要找的顏色</p>
     <div class="swatch big" id="camTarget"></div>
-
     <label class="btn shotBtn" id="shotLabel">
       📷 拍照（可以重拍）
       <input type="file" id="shot" accept="image/*" capture="environment" hidden>
     </label>
-
     <div class="result">
       <img id="camPreview" alt="剛剛拍到的畫面" hidden>
       <div class="swatch" id="camSwatch" hidden></div>
     </div>
-
     <button class="btn" id="sendShot" hidden>就是這張，上傳</button>
     <p class="paneHint" id="camHint"></p>
-    <p class="fine">只能上傳一次，上傳後不能換。<b>這張照片會投在大螢幕上給全場看。</b></p>
+    <p class="fine">只能上傳一次。<b>這張照片會投在大螢幕上給全場看。</b></p>
   </div>
 
-  <!-- 火候達人：翻面或起鍋 -->
+  <!-- 火候達人 -->
   <div class="pane" id="motionPane" hidden>
     <p class="paneLabel" id="motionVerb">把手機翻面</p>
     <div class="bigNum" id="motionTarget">—</div>
     <button class="btn ghost" id="armBtn">開啟感測器</button>
     <button class="btn" id="actBtn" disabled>翻面！</button>
     <p class="paneHint" id="motionHint"></p>
-    <p class="fine" id="motionFine">手機螢幕朝上放好，時間到翻過來。感測器不能用就按上面的按鈕。</p>
+    <p class="fine" id="motionFine">手機螢幕朝上放好，時間到翻過來。</p>
+  </div>
+
+  <!-- 搖手機 -->
+  <div class="pane" id="shakePane" hidden>
+    <div class="shakeBig">🫨</div>
+    <div class="bigNum" id="shakeCount">0</div>
+    <p class="paneLabel">用力搖手機！</p>
+    <button class="btn ghost" id="armBtn2">開啟感測器</button>
+    <button class="btn" id="shakeBtn">感測器不能用？狂按這裡</button>
+  </div>
+
+  <!-- 地理達人 -->
+  <div class="pane" id="tapPane" hidden>
+    <p class="paneLabel" id="tapPlace">—</p>
+    <img id="tapImg" class="placeImg" alt="題目照片" hidden>
+    <div class="map" id="map"></div>
+    <p class="paneHint" id="tapHint">在地圖上點一下</p>
+  </div>
+
+  <!-- 文字找不同 -->
+  <div class="pane" id="findPane" hidden>
+    <p class="paneLabel">找出不一樣的那一個</p>
+    <div class="findGrid" id="findGrid"></div>
+    <p class="paneHint" id="findHint"></p>
   </div>
 </section>
 

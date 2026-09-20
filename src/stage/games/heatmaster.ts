@@ -1,27 +1,34 @@
 /* ============================================================
    遊戲五：火候達人（個人賽）
 
-   出題「煎素火腿，10 秒翻面」。倒數開始後，玩家要在正確的時間點
-   做出動作。誤差越小分數越高。
+   六道菜，每一道要在指定的秒數做一個動作。誤差越小分數越高。
 
-   兩種動作：
-     flip  翻面（煎的）   —— 手機螢幕朝上放好，時間到翻過來
-     lift  提起來（炸的） —— 手機平放，時間到整支拿起來
+   三種動作：
+     lift   把手機提起來（煎蛋餅起鍋、薯條起鍋、掀鍋蓋）
+     flip   把手機翻面（翻素火腿、炒高麗菜）
+     shake  晃手機（撒胡椒粉）
 
    ⚠️ 投影幕上的秒數會在 2 秒內淡掉。
 
-   這一關的樂趣就是「用身體去數 10 秒」，把碼表放在畫面上就沒了。
+   這一關的樂趣就是「用身體去數秒」，把碼表放在畫面上就沒了。
    所以數字和進度圈都只在前兩秒看得到，之後全場只能靠自己數。
    鍋子的顏色也在兩秒內就燒到定色，不會變成另一個計時器。
 
-   翻面怎麼判定：用加速度計（play/flip.ts）。
-   flip 看 z 軸從 +9.8 穿到 -9.8；lift 看合成加速度偏離重力多少。
-   比用陀螺儀積分角度可靠得多 —— 積分會飄，而且不同手機的軸向不一樣。
+   ⚠️ 這一關不畫玩家的圓圈。
+
+   一百個點在鍋子旁邊飄來飄去，唯一的作用是讓人看不清楚鍋子和秒數。
+   這一關要看的是鍋子、是誰翻得準，不是誰在線上。
+
+   動作怎麼判定：用加速度計（play/flip.ts）。
+   flip 看 z 軸從 +9.8 穿到 -9.8；lift 看合成加速度偏離重力多少；
+   shake 看短時間內來回震盪幾次。比陀螺儀積分角度可靠得多 ——
+   積分會飄，而且不同手機的軸向不一樣。
 
    ⚠️ iOS 一定要使用者點一下才能拿到感測器權限，而且拒絕之後要
    重新載入頁面才能再問。所以手機端一定有一顆備援按鈕，
-   不能讓任何人卡在這一關。action 裡會記錄是 motion 還是 tap，
-   現場可以看到有多少人的感測器沒作用。
+   而且畫面上會顯示「已偵測到感應器」還是「沒有」，
+   讓人在開始之前就知道自己要用哪一種。
+   action 裡會記錄是 motion 還是 tap，現場看得到有多少人的感測器沒作用。
    ============================================================ */
 
 import type { PlayerAction } from "../../net/schema";
@@ -31,15 +38,19 @@ interface Dish {
   name: string;
   /** 幾秒做動作 */
   seconds: number;
-  gesture: "flip" | "lift";
-  /** 投影幕上寫的動作提示 */
+  gesture: "flip" | "lift" | "shake";
+  /** 投影幕與手機上寫的動作提示 */
   verb: string;
 }
 
+/** 六道菜。要改秒數或順序改這裡就好。 */
 const DISHES: Dish[] = [
-  { name: "煎素火腿", seconds: 10, gesture: "flip", verb: "翻面" },
-  { name: "炸薯條起鍋", seconds: 7, gesture: "lift", verb: "把手機提起來" },
-  { name: "翻炒高麗菜", seconds: 14, gesture: "flip", verb: "翻面" },
+  { name: "煎蛋餅", seconds: 7, gesture: "lift", verb: "把手機提起來（起鍋）" },
+  { name: "炸薯條起鍋", seconds: 6, gesture: "lift", verb: "把手機提起來" },
+  { name: "掀鍋蓋", seconds: 15, gesture: "lift", verb: "把手機提起來" },
+  { name: "翻素火腿", seconds: 10, gesture: "flip", verb: "把手機翻面" },
+  { name: "炒高麗菜", seconds: 12, gesture: "flip", verb: "把手機翻面（翻動）" },
+  { name: "撒胡椒粉", seconds: 5, gesture: "shake", verb: "晃手機" },
 ];
 
 /** 誤差幾秒就掉到 0 分 */
@@ -70,7 +81,8 @@ export function createHeatMasterGame(): Game {
       phase: "playing",
       game: "heatmaster",
       round: index + 1,
-      control: dish().gesture,
+      control: "motion",
+      gesture: dish().gesture,
       targetSeconds: dish().seconds,
       accepting: running,
       revealed: false,
@@ -83,17 +95,13 @@ export function createHeatMasterGame(): Game {
   function load(ctx: GameContext): void {
     running = false;
     acts.clear();
-    for (const a of ctx.field.actors.values()) {
-      a.flag = false;
-      a.tint = null;
-    }
     announce(ctx, `第 ${index + 1} 題：${dish().name}，${dish().seconds} 秒${dish().verb}`);
   }
 
   return {
     id: "heatmaster",
     title: "火候達人",
-    brief: "個人賽。T 開始計時，秒數兩秒後會淡掉，玩家要自己數。→ 換下一道菜。",
+    brief: "個人賽。六道菜，T 開始計時。秒數兩秒後會淡掉，玩家要自己數。→ 換下一道。",
 
     enter(ctx) {
       index = 0;
@@ -118,9 +126,6 @@ export function createHeatMasterGame(): Game {
       const score = scoreFor(a.ms);
       acts.set(uid, { ms: a.ms, score, by: a.by });
       actor.score += score;
-      actor.flag = true;
-      // 準的偏綠、爛的偏紅，投影幕上一片顏色就看得出全場火候
-      actor.tint = `hsl(${Math.round((score / 100) * 120)} 70% 55%)`;
     },
 
     draw(now, ctx) {
@@ -138,7 +143,7 @@ export function createHeatMasterGame(): Game {
       const heat = Math.min(1, elapsed / HIDE_AFTER);
       const cx = w / 2;
       const cy = h * 0.42;
-      const rr = Math.min(w, h) * 0.22;
+      const rr = Math.min(w, h) * 0.24;
 
       g.fillStyle = `hsl(${Math.round(30 - heat * 30)} ${Math.round(40 + heat * 45)}% ${Math.round(28 + heat * 18)}%)`;
       g.beginPath();
@@ -192,10 +197,10 @@ export function createHeatMasterGame(): Game {
           ? `${d.seconds} 秒${d.verb}　已做 ${acts.size}`
           : `按 T 開始　${d.seconds} 秒${d.verb}`,
         cx,
-        cy + rr + unit * 8,
+        cy + rr + unit * 7,
       );
 
-      ctx.field.drawActors(ctx.surface, now, { radius: unit * 1.4, names: false });
+      // 這一關刻意不畫玩家的圓圈：一百個點飄在鍋子旁邊只會擋住秒數。
 
       // 前五名，連誤差一起寫出來，現場才吵得起來
       const top = [...ctx.field.actors.entries()]
@@ -238,7 +243,6 @@ export function createHeatMasterGame(): Game {
         if (running) {
           startedAt = performance.now();
           acts.clear();
-          for (const a of ctx.field.actors.values()) a.flag = false;
         }
         announce(ctx, running ? `${dish().name}　開始！自己數 ${dish().seconds} 秒` : "暫停");
         return true;

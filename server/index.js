@@ -143,7 +143,10 @@ class Room {
     /* 累積待轉給 stage 的輸入，攤平之後一次送 */
     this.pendingInputs = {};
     this.rosterDirty = false;
-    this.seat = 0;
+    /* 被主控台踢掉的人。
+       只擋 uid —— 清掉瀏覽器資料就能再進來，但那不是這個功能要防的事。
+       它要防的是「有人一直亂玩，踢掉之後不要三秒又自己回來」。 */
+    this.banned = new Set();
     /* 最後一張計分表。主控台中途連進來要馬上看得到。 */
     this.scores = [];
 
@@ -259,6 +262,12 @@ wss.on("connection", (sock, req) => {
   const room = roomFor(code);
   const uid = wanted && !room.clients.has(wanted) ? wanted : randomUUID();
 
+  if (role === "play" && room.banned.has(uid)) {
+    sock.send(JSON.stringify({ t: "denied", why: "你已經被主持人請出遊戲" }));
+    sock.close(4003, "banned");
+    return;
+  }
+
   const client = { sock, uid, role, email: null };
 
   sock.isAlive = true;
@@ -314,11 +323,6 @@ wss.on("connection", (sock, req) => {
           break;
         }
 
-        case "seat": {
-          room.send(client, { t: "seat", n: room.seat++ });
-          break;
-        }
-
         case "state": {
           /* 只有 host 改得動流程。少了這一行，任何人都能拿手機把關卡跳掉。 */
           if (room.host !== uid) return;
@@ -349,6 +353,21 @@ wss.on("connection", (sock, req) => {
           /* 這是整個驗證機制的意義所在：只有驗過的主控台能下指令。
              role 是連線時就釘死的，中途改不了。 */
           if (client.role !== "console") return;
+
+          /* 踢人是伺服器的事，不是投影幕的 ——
+             投影幕只能不畫他，斷不了他的連線。 */
+          if (m.v?.k === "kick" && typeof m.v.uid === "string") {
+            const victim = room.clients.get(m.v.uid);
+            room.banned.add(m.v.uid);
+            if (victim) {
+              victim.sock.send(JSON.stringify({ t: "denied", why: "你已經被主持人請出遊戲" }));
+              victim.sock.close(4003, "kicked");
+            }
+            room.drop(m.v.uid);
+            console.log("[kick] " + m.v.uid);
+            return;
+          }
+
           room.toRole("stage", { t: "cmd", v: m.v });
           break;
         }
@@ -366,8 +385,8 @@ wss.on("connection", (sock, req) => {
           room.pendingInputs = {};
           room.state = null;
           room.scores = [];
-          room.seat = 0;
-          room.toRole("stage", { t: "players", v: {} });
+          room.banned.clear();
+              room.toRole("stage", { t: "players", v: {} });
           room.broadcast({ t: "state", v: null });
           break;
         }

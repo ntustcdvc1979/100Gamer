@@ -70,8 +70,11 @@ export interface Room {
   /** 立刻送出，不等節流。換關卡這種一次性的事件用。 */
   publishStateNow(patch: Partial<RoomState>): Promise<void>;
 
-  /** play 用。已節流（見 RATES），可以放心每幀呼叫。 */
-  pushInput(v: [number, number]): void;
+  /**
+   * play 用。已節流（見 RATES），可以放心每幀呼叫。
+   * shakes 是「到目前為止總共搖了幾下」的累計值，只有 shake 那幾關要帶。
+   */
+  pushInput(v: [number, number], shakes?: number): void;
   /** play 用。一次性事件，不節流也不覆蓋。 */
   sendAction(action: PlayerAction): Promise<void>;
 
@@ -85,7 +88,6 @@ export interface Room {
   onScores(cb: (rows: ScoreRow[]) => void): Unsubscribe;
 
   savePlayer(patch: Partial<Player>): Promise<void>;
-  takeSeat(): Promise<number>;
   clearRoom(): Promise<void>;
   dispose(): void;
 }
@@ -224,8 +226,8 @@ export async function openRoom(role: Role, opts: OpenOptions = {}): Promise<Room
       await net.setState(next).catch((e) => console.warn("[p100] setState 失敗", e));
     },
 
-    pushInput(v) {
-      inputOut.push({ v, t: Date.now() });
+    pushInput(v, shakes) {
+      inputOut.push(shakes === undefined ? { v, t: Date.now() } : { v, t: Date.now(), s: shakes });
     },
 
     sendAction: (action) => net.sendAction(action),
@@ -248,7 +250,6 @@ export async function openRoom(role: Role, opts: OpenOptions = {}): Promise<Room
     },
 
     savePlayer: (patch) => net.savePlayer(patch),
-    takeSeat: () => net.takeSeat(),
     clearRoom: () => net.clearRoom(),
 
     dispose() {

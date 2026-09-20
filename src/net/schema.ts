@@ -63,8 +63,33 @@ export interface RoomState {
    *
    * 沒填 = 手機上什麼都不顯示，只有一句提示。搖桿不是預設值 ——
    * 大廳、等待、不需要操作的關卡都不該憑空冒出一個搖桿讓人亂推。
+   *
+   *   joystick  虛擬搖桿
+   *   camera    拍照
+   *   motion    在指定秒數做一次動作（火候達人），動作看 gesture
+   *   shake     一直搖（拔河／跑步／拔蘿蔔）
+   *   tap       在台灣地圖上點一個位置（地理達人）
+   *   find      在字陣裡找出不一樣的那個字
    */
-  control?: "joystick" | "camera" | "flip" | "lift";
+  control?: "joystick" | "camera" | "motion" | "shake" | "tap" | "find";
+
+  /** control 是 motion 時要做哪一種動作。 */
+  gesture?: "flip" | "lift" | "shake";
+
+  /**
+   * 各隊現在幾個人。玩家自己選隊，所以要看得到哪一隊人少。
+   * 四個數字，約 30 bytes，只有人進出時才變。
+   */
+  teamCounts?: number[];
+
+  /** 找不同：字陣的亂數種子與行列數。兩邊用同一個種子長出同一張表。 */
+  seed?: number;
+  rows?: number;
+  cols?: number;
+
+  /** 地理達人：這一題的地名與照片路徑。 */
+  place?: string;
+  placeImg?: string;
 
   /** 這一輪還收不收（拍照／翻面）。時間到之後手機要自己鎖起來。 */
   accepting?: boolean;
@@ -95,6 +120,14 @@ export interface Input {
   v: [number, number];
   /** 送出時的本機時間，用來量延遲與判斷是不是還在動 */
   t: number;
+  /**
+   * 累計搖了幾下。只有 shake 那幾關會帶。
+   *
+   * 為什麼送累計值而不是「這次搖了幾下」：input 會被攤平覆蓋，
+   * 中間掉幾筆很正常。送增量的話掉一筆就少算幾下；
+   * 送累計值的話，投影幕自己算差值，掉多少筆都補得回來。
+   */
+  s?: number;
 }
 
 /* ---------- 一次性動作：手機 → 投影幕 ---------- */
@@ -125,7 +158,21 @@ export interface FlipAction {
   by: "motion" | "tap";
 }
 
-export type PlayerAction = ColorAction | FlipAction;
+/** 地理達人：在台灣地圖上點的位置，0..1 的地圖內座標。 */
+export interface TapAction {
+  k: "tap";
+  x: number;
+  y: number;
+}
+
+/** 文字找不同：點了第幾格，以及從出題到點下去花了幾毫秒。 */
+export interface FindAction {
+  k: "find";
+  i: number;
+  ms: number;
+}
+
+export type PlayerAction = ColorAction | FlipAction | TapAction | FindAction;
 
 /* ---------- 指令：主控台 → 投影幕 ---------- */
 
@@ -137,7 +184,9 @@ export type Command =
   /** 投影幕上叫出／收起總排行榜 */
   | { k: "leaderboard"; on: boolean }
   /** 把所有人的總分歸零 */
-  | { k: "resetScores" };
+  | { k: "resetScores" }
+  /** 把某個人踢出去。伺服器處理，不是投影幕。 */
+  | { k: "kick"; uid: string };
 
 /* ---------- 計分表：投影幕 → 主控台 ---------- */
 

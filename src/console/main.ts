@@ -26,11 +26,16 @@ const $ = <T extends HTMLElement>(id: string): T =>
 
 /** 順序與 id 都要跟 stage/games/index.ts 一致。 */
 const GAMES = [
-  { id: "gather", title: "聚沙成塔", note: "全體協作・暖身" },
-  { id: "tugofwar", title: "四方拔河", note: "分組對抗・主軸" },
-  { id: "pickside", title: "選邊站", note: "個人賽" },
+  { id: "gather", title: "聚沙成塔", note: "全體協作・搖桿" },
+  { id: "tugofwar", title: "四方拔河", note: "分組對抗・搖桿" },
+  { id: "pickside", title: "選邊站", note: "個人賽・搖桿" },
+  { id: "shaketug", title: "搖拔河", note: "紅黃 vs 綠藍・搖手機" },
+  { id: "geo", title: "地理達人", note: "個人賽・點地圖・30 秒" },
+  { id: "findchar", title: "文字找不同", note: "個人賽・30 秒" },
+  { id: "shakerun", title: "搖賽跑", note: "個人賽・搖手機" },
   { id: "photocolor", title: "拍照找顏色", note: "個人賽・60 秒" },
-  { id: "heatmaster", title: "火候達人", note: "個人賽・翻面" },
+  { id: "shakecarrot", title: "拔蘿蔔", note: "分組對抗・搖手機・1 分鐘" },
+  { id: "heatmaster", title: "火候達人", note: "個人賽・六道菜" },
 ];
 
 interface GoogleCredentialResponse {
@@ -208,13 +213,26 @@ async function connect(token?: string, insecure = false): Promise<void> {
     room.sendCommand({ k: "resetScores" });
   });
 
+  /* ---- 剔除玩家 ---- */
+  // 綁在 tbody 上而不是每一列 —— 計分表每半秒整個重畫，
+  // 綁在按鈕上的 listener 會跟著被丟掉。
+  $("tbody").addEventListener("click", (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLElement>(".kick");
+    if (!btn) return;
+    const uid = btn.dataset.uid;
+    const who = btn.dataset.name ?? "";
+    if (!uid) return;
+    if (!confirm(`把「${who}」請出遊戲？他要重新掃 QR 才能再進來。`)) return;
+    room.sendCommand({ k: "kick", uid });
+  });
+
   /* ---- 計分表 ---- */
   room.onScores((rows: ScoreRow[]) => {
     $("count").textContent = String(rows.length);
     const scored = rows.filter((r) => r.total > 0);
     $("tbody").innerHTML =
       rows.length === 0
-        ? `<tr><td colspan="5" class="empty">還沒有人加入</td></tr>`
+        ? `<tr><td colspan="6" class="empty">還沒有人加入</td></tr>`
         : rows
             .map((r, i) => {
               const t = TEAMS[r.team];
@@ -224,6 +242,7 @@ async function connect(token?: string, insecure = false): Promise<void> {
                 <td><span class="chip" style="background:${t?.color ?? "#888"}">${t?.name ?? r.team}</span></td>
                 <td class="num">${r.round || ""}</td>
                 <td class="num total">${r.total}</td>
+                <td><button class="kick" data-uid="${r.uid}" data-name="${escapeHtml(r.name)}" title="把這個人請出去">✕</button></td>
               </tr>`;
             })
             .join("");

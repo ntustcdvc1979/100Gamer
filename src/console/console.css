@@ -91,3 +91,11 @@ h2 { margin: 0 0 .6rem; font-size: .8rem; font-weight: 900; letter-spacing: .08e
   padding: .1rem .3rem; border-radius: .25rem;
   background: #F4EFE0; font-size: .92em;
 }
+
+.kick {
+  width: 1.8rem; height: 1.8rem; padding: 0;
+  border: 1px solid var(--line); border-radius: .4rem;
+  background: var(--card); color: var(--ink-soft);
+  font: inherit; font-size: .8rem; cursor: pointer;
+}
+.kick:hover { background: #FFF1EC; border-color: #F0C9BE; color: var(--warn); }

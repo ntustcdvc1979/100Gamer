@@ -18,7 +18,7 @@ import { openRoom, playUrl } from "../net/room";
 import { createSurface } from "./canvas";
 import { Field } from "./render";
 import { createGames, type Game, type GameContext } from "./games";
-import { TEAMS } from "../shared/teams";
+import { TEAMS, TEAM_IDS } from "../shared/teams";
 import type { Player, ScoreRow } from "../net/schema";
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -120,6 +120,13 @@ async function main(): Promise<void> {
     }
     countEl.textContent = String(uids.size);
     $("qrPanel").classList.toggle("small", uids.size > 0);
+
+    // 手機的選隊畫面要看得到哪一隊人少，不然一定有一隊爆滿。
+    // 四個數字，只有人進出時才變，放進 state 划算。
+    const counts = TEAM_IDS.map(
+      (t) => [...field.actors.values()].filter((a) => a.team === t).length,
+    );
+    room.publishState({ teamCounts: counts });
   });
 
   // 輸入：高頻，這是整個系統的熱路徑。這裡只把向量抄進記憶體，
@@ -128,7 +135,7 @@ async function main(): Promise<void> {
     const now = performance.now();
     for (const [uid, input] of Object.entries(inputs)) {
       if (!input?.v) continue;
-      field.applyInput(uid, input.v[0] ?? 0, input.v[1] ?? 0, now);
+      field.applyInput(uid, input.v[0] ?? 0, input.v[1] ?? 0, now, input.s);
     }
   });
 
