@@ -5,7 +5,7 @@
   flex-direction: column;
   padding: max(1.25rem, env(safe-area-inset-top)) 1.25rem max(1.25rem, env(safe-area-inset-bottom));
 }
-.screen[hidden] { display: none; }
+
 
 /* 加入畫面 */
 #joinScreen { justify-content: center; gap: .75rem; max-width: 24rem; margin: 0 auto; }
@@ -63,7 +63,6 @@
   grid-template: 1fr 1fr / 1fr 1fr;
   pointer-events: none;
 }
-.quads[hidden] { display: none; }
 .quads span {
   display: grid;
   place-items: center;
@@ -86,7 +85,6 @@
   margin-top: .75rem;
   text-align: center;
 }
-.pane[hidden] { display: none; }
 .paneLabel { margin: 0; font-size: .95rem; opacity: .75; font-weight: 700; }
 .paneHint { margin: 0; font-size: 1.05rem; font-weight: 800; min-height: 1.3em; }
 .fine { margin: 0; font-size: .78rem; opacity: .6; line-height: 1.5; }
@@ -105,7 +103,6 @@
 
 .result { display: flex; align-items: center; gap: .75rem; }
 .result img { width: 7rem; border-radius: .6rem; display: block; }
-.result img[hidden] { display: none; }
 
 /* 沒輪到操作的時候。留白比放一個沒用的搖桿好。 */
 .waiting {
@@ -120,4 +117,3 @@
 .shotBtn.off { opacity: .4; pointer-events: none; }
 
 .result:empty { display: none; }
-.swatch[hidden] { display: none; }

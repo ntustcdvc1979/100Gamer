@@ -15,7 +15,6 @@ body { background: var(--cream); }
 .login .note { margin: 1rem 0 0; font-size: .9rem; color: var(--warn); min-height: 1.2em; }
 
 .panel { max-width: 70rem; margin: 0 auto; padding: 1.25rem 1.25rem 4rem; }
-.panel[hidden] { display: none; }
 
 .top {
   display: flex; align-items: baseline; justify-content: space-between; gap: 1rem;
@@ -76,7 +75,6 @@ h2 { margin: 0 0 .6rem; font-size: .8rem; font-weight: 900; letter-spacing: .08e
   font-size: .9rem;
   line-height: 1.6;
 }
-.insecure[hidden] { display: none; }
 
 /* 前端沒設 client id 時，登入頁直接寫出要補什麼 */
 .setup {

@@ -14,6 +14,13 @@
 
 * { box-sizing: border-box; }
 
+/* hidden 屬性一定要贏。
+   瀏覽器預設的 [hidden]{display:none} 是 UA 樣式，任何一條寫了 display 的
+   作者樣式都蓋得過它 —— 搖桿區就是這樣：.pad 寫了 display:grid，
+   於是 el.hidden = true 完全沒作用，拍照和火候達人那兩關還是看得到搖桿。
+   與其每加一個元素就補一條規則（然後總有一天忘記），不如在這裡一次講清楚。 */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   height: 100%;
