@@ -106,3 +106,18 @@
 .result { display: flex; align-items: center; gap: .75rem; }
 .result img { width: 7rem; border-radius: .6rem; display: block; }
 .result img[hidden] { display: none; }
+
+/* 沒輪到操作的時候。留白比放一個沒用的搖桿好。 */
+.waiting {
+  font-size: 4rem;
+  opacity: .35;
+  animation: pulse 2.4s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100% { opacity: .2; } 50% { opacity: .5; } }
+
+/* 拍照按鈕在不能拍的時候淡掉，但不用 disabled ——
+   label 沒有 disabled，而且變灰比消失好，位置不會跳。 */
+.shotBtn.off { opacity: .4; pointer-events: none; }
+
+.result:empty { display: none; }
+.swatch[hidden] { display: none; }

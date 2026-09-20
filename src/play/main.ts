@@ -7,9 +7,12 @@
      3. 頁面要小。100 人同時走行動網路連進來，每 10 KB 都有感。
 
    畫面依 state.control 換：
-     joystick  虛擬搖桿（預設）
-     camera    拍照找顏色 —— 照片不上傳，顏色在這支手機上算完
-     flip      火候達人 —— 加速度計判定翻面，一定有按鈕備援
+     （沒填）  什麼都不顯示，只有一句提示。搖桿不是預設值 ——
+               大廳、等待的時候不該憑空冒出一個搖桿讓人亂推。
+     joystick  虛擬搖桿
+     camera    拍照找顏色 —— 可以重拍，但只能上傳一次
+     flip      火候達人（煎）—— 翻面
+     lift      火候達人（炸）—— 把手機提起來
    ============================================================ */
 
 import "../shared/base.css";
@@ -17,11 +20,11 @@ import "./play.css";
 import { openRoom, type Room } from "../net/room";
 import { SETTINGS } from "../config/settings";
 import { TEAMS, teamForSeat, type TeamId } from "../shared/teams";
-import { colorScore, fromHex, toHex } from "../shared/color";
+import { colorScore, fromHex, toHex, type Rgb } from "../shared/color";
 import { createJoystick } from "./input";
 import { keepAwake } from "./wakelock";
 import { readPhoto } from "./camera";
-import { requestMotion, watchFlip } from "./flip";
+import { requestMotion, watchMotion } from "./flip";
 import type { RoomState } from "../net/schema";
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -119,36 +122,57 @@ function startPlaying(room: Room, name: string, team: TeamId): void {
   keepAwake();
 
   const stick = createJoystick($("pad"), $("knob"));
-  const flipper = watchFlip();
+  const motion = watchMotion();
 
   const say = $("say");
   const quads = $("quads");
+  const idlePane = $("idlePane");
   const padPane = $("pad");
   const camPane = $("camPane");
-  const flipPane = $("flipPane");
+  const motionPane = $("motionPane");
 
-  let control: RoomState["control"] = "joystick";
+  let control: RoomState["control"] | undefined;
   let accepting = false;
   let targetHex = "";
-  let flipArmed = false;
+  let armed = false;
+  let startedAt = 0;
 
-  /* ---------- 拍照找顏色 ---------- */
+  /* ---------- 拍照找顏色：可以重拍，只能上傳一次 ---------- */
   const fileInput = $<HTMLInputElement>("shot");
+  const sendBtn = $<HTMLButtonElement>("sendShot");
+  /** 手上這張還沒送出去的照片 */
+  let pending: { rgb: Rgb; thumb: string } | null = null;
+  let uploaded = false;
+
+  function resetCamera(): void {
+    pending = null;
+    uploaded = false;
+    $("camPreview").hidden = true;
+    $("camSwatch").hidden = true;
+    sendBtn.hidden = true;
+    sendBtn.disabled = false;
+    sendBtn.textContent = "就是這張，上傳";
+    $("camHint").textContent = "";
+  }
+
   fileInput.addEventListener("change", () => {
     const file = fileInput.files?.[0];
     fileInput.value = ""; // 同一張照片要能再選一次
-    if (!file || !accepting) return;
+    if (!file || !accepting || uploaded) return;
     void (async () => {
-      $("camHint").textContent = "計算中…";
+      $("camHint").textContent = "處理中…";
       try {
         const shot = await readPhoto(file);
-        const hex = toHex(shot.rgb);
-        const score = targetHex ? colorScore(fromHex(targetHex), shot.rgb) : 0;
-        $<HTMLImageElement>("camPreview").src = shot.preview;
-        $("camPreview").hidden = false;
-        $("camSwatch").style.background = hex;
-        $("camHint").textContent = `你拍到 ${hex}　${score} 分`;
-        await room.sendAction({ k: "color", hex, score });
+        pending = shot;
+        const img = $<HTMLImageElement>("camPreview");
+        img.src = shot.thumb;
+        img.hidden = false;
+        const swatch = $("camSwatch");
+        swatch.style.background = toHex(shot.rgb);
+        swatch.hidden = false;
+        sendBtn.hidden = false;
+        // 不顯示分數 —— 分數要等時間到才公布，不然大家會站著微調刷分
+        $("camHint").textContent = "可以重拍，滿意再上傳";
       } catch (e) {
         console.error(e);
         $("camHint").textContent = "這張讀不到，換一張試試";
@@ -156,16 +180,25 @@ function startPlaying(room: Room, name: string, team: TeamId): void {
     })();
   });
 
+  sendBtn.addEventListener("click", () => {
+    if (!pending || uploaded || !accepting) return;
+    uploaded = true;
+    sendBtn.disabled = true;
+    sendBtn.textContent = "已上傳，等公布";
+    $("camHint").textContent = "等時間到公布分數";
+    void room.sendAction({ k: "color", hex: toHex(pending.rgb), thumb: pending.thumb });
+  });
+
   /* ---------- 火候達人 ---------- */
-  const flipBtn = $<HTMLButtonElement>("flipBtn");
+  const actBtn = $<HTMLButtonElement>("actBtn");
   const armBtn = $<HTMLButtonElement>("armBtn");
 
-  function sendFlip(ms: number, by: "motion" | "tap"): void {
-    if (!flipArmed) return;
-    flipArmed = false;
-    flipper.stop();
-    $("flipHint").textContent = `你在 ${(ms / 1000).toFixed(2)} 秒翻面`;
-    flipBtn.disabled = true;
+  function sendAct(ms: number, by: "motion" | "tap"): void {
+    if (!armed) return;
+    armed = false;
+    motion.stop();
+    $("motionHint").textContent = `你在 ${(ms / 1000).toFixed(2)} 秒動作`;
+    actBtn.disabled = true;
     void room.sendAction({ k: "flip", ms, by });
   }
 
@@ -174,57 +207,72 @@ function startPlaying(room: Room, name: string, team: TeamId): void {
     void (async () => {
       const r = await requestMotion();
       armBtn.hidden = r === "granted";
-      $("flipHint").textContent =
-        r === "granted" ? "翻面偵測已開啟"
+      $("motionHint").textContent =
+        r === "granted" ? "感測器已開啟"
         : r === "denied" ? "沒有感測器權限，用下面的按鈕也可以"
         : "這支手機沒有感測器，用下面的按鈕";
     })();
   });
 
-  flipBtn.addEventListener("click", () => {
-    if (!flipArmed) return;
-    sendFlip(performance.now() - flipStartedAt, "tap");
+  actBtn.addEventListener("click", () => {
+    if (!armed) return;
+    sendAct(performance.now() - startedAt, "tap");
   });
-
-  let flipStartedAt = 0;
 
   /* ---------- state：手機唯一被允許訂閱的東西 ---------- */
   room.onState((s) => {
     say.textContent = s?.hint ?? "";
-    const next = s?.control ?? "joystick";
+    const next = s?.control;
     const wasAccepting = accepting;
     accepting = s?.accepting ?? false;
     targetHex = s?.targetColor ?? "";
 
     if (next !== control) {
       control = next;
+      // 沒有 control 就什麼都不顯示，只留一句提示
+      idlePane.hidden = control !== undefined;
       padPane.hidden = control !== "joystick";
       camPane.hidden = control !== "camera";
-      flipPane.hidden = control !== "flip";
-      $("camPreview").hidden = true;
-      $("camHint").textContent = "";
-      $("flipHint").textContent = "";
+      motionPane.hidden = control !== "flip" && control !== "lift";
+      resetCamera();
+      $("motionHint").textContent = "";
+      armed = false;
+      motion.stop();
     }
 
     if (control === "camera") {
       $("camTarget").style.background = targetHex || "#888";
-      $<HTMLButtonElement>("shotBtn").disabled = !accepting;
+      $<HTMLLabelElement>("shotLabel").classList.toggle("off", !accepting || uploaded);
+      // 換題目了就解鎖，可以重新拍
+      if (accepting && !wasAccepting) resetCamera();
+      if (s?.revealed && uploaded && pending) {
+        // 分數是這時候才算的，手機自己用同一套公式算一次就好，
+        // 不用為了這個多開一條每人一份的通道。
+        $("camHint").textContent = `你的分數 ${colorScore(fromHex(targetHex), pending.rgb)} 分`;
+      }
     }
 
-    if (control === "flip") {
-      $("flipTarget").textContent = s?.targetSeconds ? `${s.targetSeconds} 秒` : "—";
+    if (control === "flip" || control === "lift") {
+      const lift = control === "lift";
+      $("motionTarget").textContent = s?.targetSeconds ? `${s.targetSeconds} 秒` : "—";
+      $("motionVerb").textContent = lift ? "把手機提起來" : "把手機翻面";
+      actBtn.textContent = lift ? "起鍋！" : "翻面！";
+      $("motionFine").textContent = lift
+        ? "手機平放在桌上或手上，時間到整支拿起來。感測器不能用就按上面的按鈕。"
+        : "手機螢幕朝上放好，時間到翻過來。感測器不能用就按上面的按鈕。";
+
       // 這一輪剛開始：重新武裝
       if (accepting && !wasAccepting) {
-        flipArmed = true;
-        flipStartedAt = performance.now();
-        flipBtn.disabled = false;
-        $("flipHint").textContent = "螢幕朝上放好，時間到就翻過來";
-        flipper.start((ms) => sendFlip(ms, "motion"));
+        armed = true;
+        startedAt = performance.now();
+        actBtn.disabled = false;
+        $("motionHint").textContent = lift ? "放好，自己數秒數" : "螢幕朝上放好，自己數秒數";
+        motion.start(lift ? "lift" : "flip", (ms) => sendAct(ms, "motion"));
       }
       if (!accepting) {
-        flipArmed = false;
-        flipper.stop();
-        flipBtn.disabled = true;
+        armed = false;
+        motion.stop();
+        actBtn.disabled = true;
       }
     }
 
@@ -253,7 +301,7 @@ function startPlaying(room: Room, name: string, team: TeamId): void {
   window.addEventListener("pagehide", () => {
     cancelAnimationFrame(raf);
     stick.dispose();
-    flipper.dispose();
+    motion.dispose();
     room.dispose();
   });
 }

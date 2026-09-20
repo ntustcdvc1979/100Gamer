@@ -1,20 +1,25 @@
 /* ============================================================
    遊戲四：拍照找顏色（個人賽）
 
-   出題「蘋果紅」，大家在 60 秒內在現場找一個最像的東西拍下來，
-   比對顏色相似度給分。
+   出題「蘋果紅」，大家在 60 秒內在現場找一個最像的東西拍下來。
+   可以一直重拍，但**只能上傳一次** —— 按下「就是這張」就定案。
+   分數在時間到才公布，投影幕依分數高低秀出照片與分數。
 
-   ⚠️ 照片不上傳。
+   ⚠️ 照片會離開手機。
 
-   這是這一關最重要的設計決定。100 支手機同時傳照片，
-   就算壓到 200KB 也是 20MB 打在一台 256MB 的中繼伺服器上，
-   而且那是個資 —— 拍到別人的臉就留在伺服器上了。
-   所以顏色在手機上算完（play/camera.ts），只送一個 hex 和分數上來，
-   幾十個 bytes。照片從頭到尾沒離開過那支手機。
+   原本的設計是「只送顏色、照片留在手機上」。改成要在投影幕上秀照片
+   之後就不可能了，所以做了三件事把代價壓下來：
+
+     1. 只送縮圖（200px、JPEG 0.55，約 8–12KB）。100 張約 1MB，
+        一次性，中繼機吃得下。原圖不會離開手機。
+     2. 伺服器只轉不存，投影幕也只留在記憶體，重整就沒了。
+     3. 手機上明講「這張會投到大螢幕」，讓人自己決定拍什麼。
+
+   為什麼分數要等時間到才公布：邊拍邊看分數的話，大家會站在原地
+   對著同一個東西微調角度刷分，而不是跑去找更像的東西。
 
    分數怎麼算：src/shared/color.ts 的 CIE94 色差。不能用 RGB 歐氏距離，
    那跟人眼差很遠 —— 深藍和黑在 RGB 上很近，看起來卻完全不同。
-   投影幕收到手機報的分數之後會自己用 hex 再算一次，不直接採信。
    ============================================================ */
 
 import { colorScore, fromHex } from "../../shared/color";
@@ -34,13 +39,24 @@ const PROMPTS: Prompt[] = [
 ];
 
 const ROUND_MS = 60_000;
+/** 公布時秀幾張照片。投影幕上要看得清楚，不能全部塞進去。 */
+const SHOW_TOP = 8;
+
+interface Shot {
+  hex: string;
+  score: number;
+  /** 已經載進來的縮圖，canvas 只能畫 Image 不能畫 data URI 字串 */
+  img: HTMLImageElement;
+}
 
 export function createPhotoColorGame(): Game {
   let index = 0;
   let running = false;
+  let revealed = false;
   let endsAt = 0;
-  /** 這一題誰交了什麼。換題目時清掉。 */
-  const shots = new Map<string, { hex: string; score: number }>();
+  /** 這一題誰交了什麼。一人一張，交了就不能換。 */
+  const shots = new Map<string, Shot>();
+  let ranked: [string, Shot][] = [];
 
   function prompt(): Prompt {
     return PROMPTS[index] as Prompt;
@@ -54,6 +70,7 @@ export function createPhotoColorGame(): Game {
       control: "camera",
       targetColor: prompt().hex,
       accepting: running,
+      revealed,
       hint,
       options: [],
     });
@@ -61,7 +78,9 @@ export function createPhotoColorGame(): Game {
 
   function load(ctx: GameContext): void {
     running = false;
+    revealed = false;
     shots.clear();
+    ranked = [];
     for (const a of ctx.field.actors.values()) {
       a.tint = null;
       a.flag = false;
@@ -69,10 +88,29 @@ export function createPhotoColorGame(): Game {
     announce(ctx, `第 ${index + 1} 題：找「${prompt().label}」，等主持人開始`);
   }
 
+  function reveal(ctx: GameContext): void {
+    running = false;
+    revealed = true;
+    ranked = [...shots.entries()].sort((a, b) => b[1].score - a[1].score);
+    // 分數這時候才進帳，前面只是收件
+    for (const [uid, shot] of ranked) {
+      const actor = ctx.field.actors.get(uid);
+      if (actor) actor.score = shot.score;
+    }
+    const best = ranked[0];
+    announce(
+      ctx,
+      best
+        ? `公布了！第一名 ${ctx.field.actors.get(best[0])?.name ?? ""}　${best[1].score} 分`
+        : "沒有人交卷",
+    );
+  }
+
   return {
     id: "photocolor",
     title: "拍照找顏色",
-    brief: "個人賽。出題後按 T 開始 60 秒，大家拍照比對顏色。→ 換下一題。照片不上傳。",
+    brief:
+      "個人賽。T 開始 60 秒，再按 T 提早公布。可以重拍但只能上傳一次。→ 換下一題。照片會投在畫面上。",
 
     enter(ctx) {
       index = 0;
@@ -81,28 +119,24 @@ export function createPhotoColorGame(): Game {
     },
 
     step(_dt, now, ctx) {
-      if (running && now >= endsAt) {
-        running = false;
-        announce(ctx, `時間到！${shots.size} 個人交卷`);
-      }
+      if (running && now >= endsAt) reveal(ctx);
     },
 
     action(uid, a: PlayerAction, ctx) {
       if (a.k !== "color" || !running) return;
+      // 一人一張，先到先算。手機那邊也鎖了，這裡是第二道 ——
+      // 別人改過的客戶端不該能一直洗。
+      if (shots.has(uid)) return;
       const actor = ctx.field.actors.get(uid);
       if (!actor) return;
 
-      // 不直接採信手機報的分數 —— 用 hex 自己再算一次。
-      // 手機算一次是為了讓玩家馬上看到結果，不是為了當權威。
+      // 不採信手機報的任何分數，投影幕自己用 hex 算。
       const score = colorScore(fromHex(prompt().hex), fromHex(a.hex));
 
-      const prev = shots.get(uid);
-      // 一題只能交一次最好的。重拍可以，但只留最高分，
-      // 不然手快的人狂拍就贏了。
-      if (prev && prev.score >= score) return;
+      const img = new Image();
+      img.src = a.thumb;
 
-      shots.set(uid, { hex: a.hex, score });
-      actor.score += score - (prev?.score ?? 0);
+      shots.set(uid, { hex: a.hex, score, img });
       actor.tint = a.hex;
       actor.flag = true;
     },
@@ -112,17 +146,22 @@ export function createPhotoColorGame(): Game {
       const p = prompt();
 
       // 目標色票，占畫面上緣一大條。後排要看得到顏色本身。
-      const swatchH = h * 0.26;
+      const swatchH = h * 0.22;
       g.fillStyle = p.hex;
       g.fillRect(0, 0, w, swatchH);
 
       g.textAlign = "center";
       g.textBaseline = "middle";
       g.fillStyle = "rgba(0,0,0,.55)";
-      g.font = `900 ${Math.round(unit * 9)}px system-ui, "Noto Sans TC", sans-serif`;
+      g.font = `900 ${Math.round(unit * 8)}px system-ui, "Noto Sans TC", sans-serif`;
       g.fillText(p.label, w / 2, swatchH / 2);
 
-      // 倒數
+      if (revealed) {
+        drawResults(ctx, swatchH);
+        return;
+      }
+
+      // 收件中：只說交了幾個人，不透露任何分數。
       g.fillStyle = "#FFFFFF";
       g.font = `900 ${Math.round(unit * 5)}px system-ui, "Noto Sans TC", sans-serif`;
       const left = running ? Math.ceil((endsAt - now) / 1000) : 0;
@@ -131,47 +170,26 @@ export function createPhotoColorGame(): Game {
         w / 2,
         swatchH + unit * 5,
       );
+      g.font = `700 ${Math.round(unit * 2.6)}px system-ui, "Noto Sans TC", sans-serif`;
+      g.fillStyle = "rgba(255,255,255,.6)";
+      g.fillText("分數時間到才公布", w / 2, swatchH + unit * 10);
 
-      // 每個人拍到的顏色就是他的點的顏色，一眼看得出誰找得準
+      // 交過的人亮起他拍到的顏色，但不顯示分數
       ctx.field.drawActors(ctx.surface, now, { radius: unit * 1.6, names: false });
-
-      // 前五名，連同他拍到的色塊一起秀
-      const top = [...ctx.field.actors.entries()]
-        .filter(([uid]) => shots.has(uid))
-        .sort((a, b) => (shots.get(b[0])?.score ?? 0) - (shots.get(a[0])?.score ?? 0))
-        .slice(0, 5);
-
-      if (top.length > 0) {
-        const boxH = unit * (4 + top.length * 4.5);
-        g.fillStyle = "rgba(10,10,14,.8)";
-        g.fillRect(unit * 2, h - boxH - unit * 2, unit * 34, boxH);
-
-        g.textAlign = "left";
-        g.fillStyle = "#FFFFFF";
-        g.font = `900 ${Math.round(unit * 2.4)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillText("最接近的", unit * 4, h - boxH + unit * 0.5);
-
-        top.forEach(([uid, actor], i) => {
-          const shot = shots.get(uid);
-          if (!shot) return;
-          const y = h - boxH + unit * (4.5 + i * 4.5);
-          g.fillStyle = shot.hex;
-          g.fillRect(unit * 4, y - unit * 1.4, unit * 5, unit * 2.8);
-          g.fillStyle = "#FFFFFF";
-          g.font = `700 ${Math.round(unit * 2.2)}px system-ui, "Noto Sans TC", sans-serif`;
-          g.fillText(`${actor.name}`, unit * 10.5, y);
-          g.textAlign = "right";
-          g.fillText(`${shot.score}`, unit * 34, y);
-          g.textAlign = "left";
-        });
-      }
     },
 
     key(e, ctx) {
       if (e.key === "t" || e.key === "T") {
-        running = !running;
-        if (running) endsAt = performance.now() + ROUND_MS;
-        announce(ctx, running ? `找「${prompt().label}」，拍下來！` : "暫停");
+        if (revealed) return true;
+        if (running) {
+          // 大家都交完了就不用乾等 —— 再按一次直接公布，
+          // 跟選邊站同一個手感。
+          reveal(ctx);
+          return true;
+        }
+        running = true;
+        endsAt = performance.now() + ROUND_MS;
+        announce(ctx, `找「${prompt().label}」，拍下來！可以重拍，但只能上傳一次`);
         return true;
       }
       if (e.key === "ArrowRight" && index < PROMPTS.length - 1) {
@@ -186,4 +204,68 @@ export function createPhotoColorGame(): Game {
       return false;
     },
   };
+
+  /** 公布畫面：照片依分數高低排成一列，越前面越像。 */
+  function drawResults(ctx: GameContext, top: number): void {
+    const { ctx: g, w, h, unit } = ctx.surface;
+
+    if (ranked.length === 0) {
+      g.fillStyle = "rgba(255,255,255,.6)";
+      g.font = `900 ${Math.round(unit * 5)}px system-ui, "Noto Sans TC", sans-serif`;
+      g.fillText("沒有人交卷", w / 2, h / 2);
+      return;
+    }
+
+    const show = ranked.slice(0, SHOW_TOP);
+    const cols = Math.min(4, show.length);
+    const rows = Math.ceil(show.length / cols);
+    const areaY = top + unit * 4;
+    const areaH = h - areaY - unit * 4;
+    const cellW = w / cols;
+    const cellH = areaH / rows;
+    const photoH = cellH * 0.62;
+
+    show.forEach(([uid, shot], i) => {
+      const cx = cellW * (i % cols) + cellW / 2;
+      const cy = areaY + cellH * Math.floor(i / cols);
+      const actor = ctx.field.actors.get(uid);
+
+      // 照片。等比縮到格子裡，不裁切 —— 拍直式的人也要看得完整。
+      const iw = shot.img.naturalWidth || 4;
+      const ih = shot.img.naturalHeight || 3;
+      const scale = Math.min((cellW * 0.6) / iw, photoH / ih);
+      const dw = iw * scale;
+      const dh = ih * scale;
+      if (shot.img.complete && iw > 1) {
+        g.drawImage(shot.img, cx - dw / 2, cy + (photoH - dh) / 2, dw, dh);
+      }
+
+      // 名次角標
+      g.fillStyle = i === 0 ? "#F2A72C" : "rgba(255,255,255,.75)";
+      g.textAlign = "center";
+      g.textBaseline = "top";
+      g.font = `900 ${Math.round(unit * 3)}px system-ui, "Noto Sans TC", sans-serif`;
+      g.fillText(`${i + 1}`, cx - dw / 2 - unit * 2, cy + photoH * 0.3);
+
+      // 拍到的顏色 + 名字 + 分數
+      const infoY = cy + photoH + unit * 1.2;
+      g.fillStyle = shot.hex;
+      g.fillRect(cx - unit * 8, infoY, unit * 3, unit * 3);
+      g.fillStyle = "#FFFFFF";
+      g.textAlign = "left";
+      g.font = `700 ${Math.round(unit * 2.4)}px system-ui, "Noto Sans TC", sans-serif`;
+      g.fillText(actor?.name ?? "", cx - unit * 4, infoY + unit * 1.4);
+      g.font = `900 ${Math.round(unit * 3)}px system-ui, "Noto Sans TC", sans-serif`;
+      g.fillStyle = i === 0 ? "#F2A72C" : "#FFFFFF";
+      g.textAlign = "right";
+      g.fillText(`${shot.score}`, cx + unit * 8, infoY + unit * 1.4);
+    });
+
+    if (ranked.length > SHOW_TOP) {
+      g.textAlign = "center";
+      g.fillStyle = "rgba(255,255,255,.5)";
+      g.font = `700 ${Math.round(unit * 2.2)}px system-ui, "Noto Sans TC", sans-serif`;
+      g.fillText(`還有 ${ranked.length - SHOW_TOP} 個人交了`, w / 2, h - unit * 3);
+    }
+  }
 }

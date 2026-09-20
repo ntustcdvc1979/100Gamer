@@ -17,6 +17,17 @@
 const UP = 6;
 const DOWN = -6;
 
+/**
+ * 「提起來」的判定門檻（m/s²）。
+ *
+ * 靜止時 accelerationIncludingGravity 的長度就是重力，約 9.8。
+ * 往上提會多出一段向上的加速度，合成長度會衝過 9.8。
+ * 用「長度偏離重力多少」而不是看某一個軸，是因為手拿著的角度不固定 ——
+ * 有人平舉、有人斜著拿，看單軸會漏判。
+ */
+const LIFT_DELTA = 4.5;
+const GRAVITY = 9.81;
+
 export type FlipSupport = "granted" | "denied" | "unsupported";
 
 interface MotionEventCtor {
@@ -41,42 +52,66 @@ export async function requestMotion(): Promise<FlipSupport> {
   }
 }
 
-export interface FlipWatcher {
-  /** 開始一輪。翻面時呼叫 onFlip，單位是距離 start() 幾毫秒。 */
-  start(onFlip: (ms: number, by: "motion") => void): void;
+/** 兩種動作：翻面（煎東西）與提起來（炸東西起鍋）。 */
+export type Gesture = "flip" | "lift";
+
+export interface MotionWatcher {
+  /** 開始一輪。做出動作時呼叫 onDone，單位是距離 start() 幾毫秒。 */
+  start(gesture: Gesture, onDone: (ms: number) => void): void;
   stop(): void;
   dispose(): void;
 }
 
-export function watchFlip(): FlipWatcher {
+export function watchMotion(): MotionWatcher {
   let armed = false;
+  let gesture: Gesture = "flip";
   let sawUp = false;
+  let settled = false;
   let startedAt = 0;
-  let cb: ((ms: number, by: "motion") => void) | null = null;
+  let cb: ((ms: number) => void) | null = null;
+
+  function fire(): void {
+    armed = false;
+    cb?.(performance.now() - startedAt);
+  }
 
   function onMotion(e: DeviceMotionEvent): void {
     if (!armed) return;
-    const z = e.accelerationIncludingGravity?.z;
-    if (typeof z !== "number") return;
+    const a = e.accelerationIncludingGravity;
+    if (!a) return;
 
-    // 要先看到「朝上」才算數，不然一開始就拿反的人會馬上觸發
-    if (z > UP) {
-      sawUp = true;
+    if (gesture === "flip") {
+      const z = a.z;
+      if (typeof z !== "number") return;
+      // 要先看到「朝上」才算數，不然一開始就拿反的人會馬上觸發
+      if (z > UP) {
+        sawUp = true;
+        return;
+      }
+      if (sawUp && z < DOWN) fire();
       return;
     }
-    if (sawUp && z < DOWN) {
-      armed = false;
-      cb?.(performance.now() - startedAt, "motion");
+
+    // lift：看合成加速度偏離重力多少
+    const mag = Math.hypot(a.x ?? 0, a.y ?? 0, a.z ?? 0);
+    const delta = Math.abs(mag - GRAVITY);
+    // 一開始要先「安穩放著」一次，不然剛按完開始、手還在晃就觸發
+    if (!settled) {
+      if (delta < 1.5) settled = true;
+      return;
     }
+    if (delta > LIFT_DELTA) fire();
   }
 
   window.addEventListener("devicemotion", onMotion);
 
   return {
-    start(onFlip) {
-      cb = onFlip;
+    start(g, onDone) {
+      gesture = g;
+      cb = onDone;
       startedAt = performance.now();
       sawUp = false;
+      settled = false;
       armed = true;
     },
     stop() {

@@ -8,7 +8,7 @@
    它會跟著關卡改變行為（讀 state.control）：
      joystick  一直亂搖
      camera    隨機挑一個「接近目標色」的顏色交出去
-     flip      在目標秒數附近隨機翻面
+     flip/lift 在目標秒數附近隨機做動作
 
    所以拍照找顏色和火候達人也能在沒有 100 支真手機的情況下先跑一次，
    看看計分、排行榜、投影幕版面長什麼樣。
@@ -40,6 +40,20 @@ const NAMES = [
   "小明", "阿華", "宗翰", "佩君", "怡君", "家豪", "雅婷", "俊傑",
   "淑芬", "建宏", "美玲", "志明", "欣怡", "冠廷", "詩涵", "承恩",
 ];
+
+/**
+ * 假的縮圖：一張該顏色的 SVG 方塊。
+ *
+ * 用純色方塊而不是透明的 1×1，是為了讓彩排時投影幕的公布版面看得出來 ——
+ * 八個格子排不排得下、名字會不會擠、分數對不對得上。
+ */
+function fakeThumb(hex: string): string {
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="150">` +
+    `<rect width="200" height="150" fill="${hex}"/>` +
+    `<rect x="70" y="45" width="60" height="60" fill="none" stroke="#fff" stroke-width="2"/></svg>`;
+  return "data:image/svg+xml;base64," + Buffer.from(svg).toString("base64");
+}
 
 /** 在目標色附近亂走一段距離，模擬「有人找得準、有人隨便拍」。 */
 function nearby(hex: string, spread: number): string {
@@ -116,13 +130,14 @@ function connect(i: number): void {
       doneThisRound = true;
       // 有人找得準、有人隨便拍：擴散量隨機，分數才會拉得開
       const spread = 20 + Math.random() * 160;
+      const hex = nearby(s.targetColor as string, spread);
       setTimeout(
         () => {
           if (sock.readyState !== WebSocket.OPEN) return;
           sock.send(
             JSON.stringify({
               t: "action",
-              v: { k: "color", hex: nearby(s.targetColor as string, spread), score: 0 },
+              v: { k: "color", hex, thumb: fakeThumb(hex) },
             }),
           );
         },
@@ -130,7 +145,7 @@ function connect(i: number): void {
       );
     }
 
-    if (s.control === "flip" && s.targetSeconds) {
+    if ((s.control === "flip" || s.control === "lift") && s.targetSeconds) {
       doneThisRound = true;
       const target = s.targetSeconds * 1000;
       // 誤差常態一點：大多數人差半秒內，少數人差很多

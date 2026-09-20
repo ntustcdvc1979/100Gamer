@@ -27,8 +27,14 @@
   <!-- 現在要幹嘛。後排看不到投影幕，就看這一行。 -->
   <p class="say" id="say"></p>
 
+  <!-- 沒有輪到操作的時候。搖桿不是預設值。 -->
+  <div class="pane" id="idlePane">
+    <div class="waiting">✦</div>
+    <p class="paneHint">看投影幕，等主持人</p>
+  </div>
+
   <!-- 搖桿 -->
-  <div class="pad" id="pad">
+  <div class="pad" id="pad" hidden>
     <div class="quads" id="quads" hidden>
       <span></span><span></span><span></span><span></span>
     </div>
@@ -36,31 +42,34 @@
     <p class="padHint" id="padHint">按住並移動</p>
   </div>
 
-  <!-- 拍照找顏色。照片不上傳，顏色在這支手機上算完。 -->
+  <!-- 拍照找顏色。可以重拍，只能上傳一次。 -->
   <div class="pane" id="camPane" hidden>
     <p class="paneLabel">要找的顏色</p>
     <div class="swatch big" id="camTarget"></div>
-    <label class="btn shotBtn">
-      📷 拍照
+
+    <label class="btn shotBtn" id="shotLabel">
+      📷 拍照（可以重拍）
       <input type="file" id="shot" accept="image/*" capture="environment" hidden>
     </label>
-    <button class="btn ghost" id="shotBtn" hidden></button>
+
     <div class="result">
       <img id="camPreview" alt="剛剛拍到的畫面" hidden>
-      <div class="swatch" id="camSwatch"></div>
+      <div class="swatch" id="camSwatch" hidden></div>
     </div>
+
+    <button class="btn" id="sendShot" hidden>就是這張，上傳</button>
     <p class="paneHint" id="camHint"></p>
-    <p class="fine">照片只留在你的手機上，不會上傳。</p>
+    <p class="fine">只能上傳一次，上傳後不能換。<b>這張照片會投在大螢幕上給全場看。</b></p>
   </div>
 
-  <!-- 火候達人 -->
-  <div class="pane" id="flipPane" hidden>
-    <p class="paneLabel">幾秒翻面</p>
-    <div class="bigNum" id="flipTarget">—</div>
-    <button class="btn ghost" id="armBtn">開啟翻面偵測</button>
-    <button class="btn" id="flipBtn" disabled>翻面！</button>
-    <p class="paneHint" id="flipHint"></p>
-    <p class="fine">手機螢幕朝上放著，時間到翻過來。感測器不能用就按上面的按鈕。</p>
+  <!-- 火候達人：翻面或起鍋 -->
+  <div class="pane" id="motionPane" hidden>
+    <p class="paneLabel" id="motionVerb">把手機翻面</p>
+    <div class="bigNum" id="motionTarget">—</div>
+    <button class="btn ghost" id="armBtn">開啟感測器</button>
+    <button class="btn" id="actBtn" disabled>翻面！</button>
+    <p class="paneHint" id="motionHint"></p>
+    <p class="fine" id="motionFine">手機螢幕朝上放好，時間到翻過來。感測器不能用就按上面的按鈕。</p>
   </div>
 </section>
 

@@ -74,6 +74,7 @@ export function createGatherGame(): Game {
     ctx.publish({
       phase: "playing",
       game: "gather",
+      control: "joystick",
       round: shapeIndex + 1,
       hint: "把自己推進投影幕上的字裡面！",
       options: [],

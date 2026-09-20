@@ -16,13 +16,27 @@ import { linearToRgb, srgbToLinear, type Rgb } from "../shared/color";
 
 /** 取樣的邊長佔整張照片的比例 */
 const SAMPLE = 0.3;
-/** 縮到這個大小再取樣。手機拍出來動輒 4000px，全解析度讀是浪費。 */
-const WORK = 240;
+/**
+ * 縮到這個大小再取樣。手機拍出來動輒 4000px，全解析度讀是浪費。
+ *
+ * 這個尺寸同時也是**上傳到投影幕的縮圖尺寸**，所以不能再小了
+ * （投影幕上要看得出拍的是什麼），也不該更大：
+ * 200px 的 JPEG 約 8–12KB，100 個人加起來約 1MB，中繼機吃得下。
+ */
+const WORK = 200;
+
+/** 上傳的 JPEG 品質。0.55 在「看得出是什麼」與「檔案夠小」之間。 */
+const QUALITY = 0.55;
 
 export interface Shot {
   rgb: Rgb;
-  /** 縮圖，給玩家自己看剛剛拍到什麼。只留在這支手機上。 */
-  preview: string;
+  /**
+   * 縮圖的 data URI。
+   *
+   * ⚠️ 這張會上傳，而且會投在投影幕上給全場看。
+   * 原圖不會離開手機，但這張縮圖會。
+   */
+  thumb: string;
 }
 
 export async function readPhoto(file: File): Promise<Shot> {
@@ -59,14 +73,14 @@ export async function readPhoto(file: File): Promise<Shot> {
 
   const rgb = n > 0 ? linearToRgb(lr / n, lg / n, lb / n) : { r: 0, g: 0, b: 0 };
 
-  // 畫一個取樣框在縮圖上，玩家才知道系統看的是哪一塊
+  // 畫一個取樣框，玩家和投影幕都看得出系統量的是哪一塊
   g.strokeStyle = "#ffffff";
   g.lineWidth = 2;
   g.strokeRect(sx, sy, sw, sh);
 
   if ("close" in bitmap) bitmap.close();
 
-  return { rgb, preview: canvas.toDataURL("image/jpeg", 0.7) };
+  return { rgb, thumb: canvas.toDataURL("image/jpeg", QUALITY) };
 }
 
 /** createImageBitmap 在舊 Safari 上沒有，退回 <img>。 */

@@ -45,6 +45,7 @@ export function createPickSideGame(): Game {
     ctx.publish({
       phase: "playing",
       game: "pickside",
+      control: "joystick",
       round: index + 1,
       hint,
       options: [...q().options],

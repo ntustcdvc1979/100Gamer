@@ -53,7 +53,8 @@ export function createTugOfWarGame(): Game {
   function publishScores(ctx: GameContext, hint: string): void {
     const teams: Record<string, { score: number }> = {};
     for (const id of TEAM_IDS) teams[id] = { score: wins[id] ?? 0 };
-    ctx.publish({ phase: "playing", game: "tugofwar", round, teams, hint, options: [] });
+    ctx.publish({ phase: "playing", game: "tugofwar",
+      control: "joystick", round, teams, hint, options: [] });
   }
 
   return {
