@@ -94,6 +94,21 @@ export interface RoomTransport {
   /** 只有 console 該呼叫。 */
   onScores?(cb: (rows: ScoreRow[]) => void): Unsubscribe;
 
+  /* ---- 隊友的座標：stage → 同隊的手機 ---- */
+
+  /**
+   * 地理達人用。stage 把「每一隊各自點在哪」交給伺服器，
+   * 伺服器按隊分流，每支手機只收到自己那一隊的。
+   *
+   * 為什麼不走 state：state 是廣播給所有人的。把四隊的座標都塞進去，
+   * 等於每支手機都收到全場一百個座標 —— 那正是規則一在防的扇出。
+   * 伺服器知道每個人的隊伍（players 裡有），所以它是唯一能分流的地方。
+   */
+  publishPins?(pins: Record<string, [number, number][]>): void;
+
+  /** 只有 play 該呼叫。收到的是自己這一隊的座標。 */
+  onPins?(cb: (pins: [number, number][]) => void): Unsubscribe;
+
   /* ---- 其他 ---- */
 
   /** 活動結束或重跑一場：清掉這個房間。 */

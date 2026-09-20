@@ -18,6 +18,12 @@ export interface GameContext {
   readonly surface: Surface;
   /** 送到手機上。內容要小，而且只在真的變了的時候呼叫才有意義。 */
   publish(patch: Partial<RoomState>): void;
+
+  /**
+   * 把各隊的座標交出去，伺服器會按隊分流，每支手機只收自己那一隊的。
+   * 已節流到 4 Hz，可以放心每幀呼叫。
+   */
+  publishPins(pins: Record<string, [number, number][]>): void;
 }
 
 export interface Game {

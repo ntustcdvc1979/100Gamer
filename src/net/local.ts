@@ -44,7 +44,8 @@ function newId(): string {
 type Wire =
   | { w: "snap"; v: Snapshot }
   | { w: "action"; uid: string; v: PlayerAction }
-  | { w: "cmd"; v: Command };
+  | { w: "cmd"; v: Command }
+  | { w: "pins"; v: Record<string, [number, number][]> };
 
 const KEY = "p100:local";
 
@@ -103,6 +104,7 @@ export function createLocalTransport(): RoomTransport {
   const scoreCbs: ((r: ScoreRow[]) => void)[] = [];
   const actionCbs: ((uid: string, a: PlayerAction) => void)[] = [];
   const commandCbs: ((c: Command) => void)[] = [];
+  const pinCbs: ((p: [number, number][]) => void)[] = [];
 
   function safely(fn: () => void): void {
     try {
@@ -125,6 +127,12 @@ export function createLocalTransport(): RoomTransport {
       if (m.w === "snap") emit(m.v);
       else if (m.w === "action") for (const cb of actionCbs) safely(() => cb(m.uid, m.v));
       else if (m.w === "cmd") for (const cb of commandCbs) safely(() => cb(m.v));
+      else if (m.w === "pins") {
+        // 本機模式沒有伺服器可以分流，就自己查一下自己的隊伍再濾。
+        const me = read().players[uid];
+        const mine = (me?.team && m.v[me.team]) || [];
+        for (const cb of pinCbs) safely(() => cb(mine));
+      }
     };
   }
   // 沒有 BroadcastChannel 的話還有 storage 事件可以撐著
@@ -211,6 +219,14 @@ export function createLocalTransport(): RoomTransport {
 
     onCommand(cb) {
       return sub(commandCbs, cb);
+    },
+
+    publishPins(pins) {
+      post({ w: "pins", v: pins });
+    },
+
+    onPins(cb) {
+      return sub(pinCbs, cb);
     },
 
     publishScores(rows) {

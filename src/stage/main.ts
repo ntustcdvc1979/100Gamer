@@ -60,6 +60,7 @@ async function main(): Promise<void> {
     field,
     surface,
     publish: (patch) => room.publishState(patch),
+    publishPins: (pins) => room.publishPins(pins),
   };
 
   let index = -1;

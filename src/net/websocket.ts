@@ -32,6 +32,7 @@ type ServerMsg =
   | { t: "action"; uid: string; v: PlayerAction }
   | { t: "cmd"; v: Command }
   | { t: "scores"; v: ScoreRow[] }
+  | { t: "pins"; v: [number, number][] }
   | { t: "host"; ok: boolean };
 
 /** 主控台驗不過的時候丟這個，呼叫端才能顯示「這個帳號沒有權限」。 */
@@ -65,6 +66,7 @@ export async function createWebsocketTransport(
   const actionCbs: ((uid: string, a: PlayerAction) => void)[] = [];
   const commandCbs: ((c: Command) => void)[] = [];
   const scoreCbs: ((r: ScoreRow[]) => void)[] = [];
+  const pinCbs: ((p: [number, number][]) => void)[] = [];
   const connCbs: ((ok: boolean) => void)[] = [];
 
   let lastState: RoomState | null = null;
@@ -158,6 +160,11 @@ export async function createWebsocketTransport(
       case "scores":
         lastScores = msg.v ?? [];
         for (const cb of scoreCbs) cb(lastScores);
+        break;
+
+      case "pins":
+        // 伺服器已經按隊分流過，這裡收到的就是自己這一隊的座標
+        for (const cb of pinCbs) cb(msg.v ?? []);
         break;
 
       case "host":
@@ -318,6 +325,14 @@ export async function createWebsocketTransport(
 
     publishScores(rows) {
       send({ t: "scores", v: rows });
+    },
+
+    publishPins(pins) {
+      send({ t: "pins", v: pins });
+    },
+
+    onPins(cb) {
+      return sub(pinCbs, cb);
     },
 
     onScores(cb) {

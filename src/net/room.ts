@@ -87,6 +87,11 @@ export interface Room {
   /** console 用。 */
   onScores(cb: (rows: ScoreRow[]) => void): Unsubscribe;
 
+  /** stage 用。已節流到 4 Hz —— 隊友的點不需要 60 fps。 */
+  publishPins(pins: Record<string, [number, number][]>): void;
+  /** play 用。收到的是自己這一隊的座標。 */
+  onPins(cb: (pins: [number, number][]) => void): Unsubscribe;
+
   savePlayer(patch: Partial<Player>): Promise<void>;
   clearRoom(): Promise<void>;
   dispose(): void;
@@ -159,6 +164,11 @@ export async function openRoom(role: Role, opts: OpenOptions = {}): Promise<Room
   // 計分表比 state 大得多（100 列），但只送給主控台一個人，
   // 所以 2 Hz 就夠，不需要跟畫面同步。
   const scoreOut = throttleLatest<ScoreRow[]>(2, (rows) => net.publishScores?.(rows));
+
+  // 隊友的點：4 Hz 就夠。它是「大家點在哪」的參考，不是即時操作。
+  const pinOut = throttleLatest<Record<string, [number, number][]>>(4, (p) =>
+    net.publishPins?.(p),
+  );
 
   /** 比內容，不看 seq 與 updatedAt —— 它們每次都會變，拿來比就永遠不相等。 */
   function sameContent(a: RoomState, b: RoomState): boolean {
@@ -249,6 +259,15 @@ export async function openRoom(role: Role, opts: OpenOptions = {}): Promise<Room
       return net.onScores?.(cb) ?? (() => {});
     },
 
+    publishPins(pins) {
+      if (!isHost) return;
+      pinOut.push(pins);
+    },
+
+    onPins(cb) {
+      return net.onPins?.(cb) ?? (() => {});
+    },
+
     savePlayer: (patch) => net.savePlayer(patch),
     clearRoom: () => net.clearRoom(),
 
@@ -256,6 +275,7 @@ export async function openRoom(role: Role, opts: OpenOptions = {}): Promise<Room
       stateOut.stop();
       inputOut.stop();
       scoreOut.stop();
+      pinOut.stop();
     },
   };
 

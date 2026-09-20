@@ -280,11 +280,33 @@ function startPlaying(room: Room, name: string, team: TeamId): void {
   mapSvg.innerHTML =
     `<svg viewBox="0 0 100 170" width="100%" height="100%" aria-label="台灣地圖">` +
     `<path d="${outlinePath(100, 170)}" fill="rgba(255,255,255,.22)" stroke="currentColor" stroke-width="1.2"/>` +
+    `<g id="mates"></g>` +
     `<circle id="mapPin" r="3.5" fill="#fff" stroke="currentColor" stroke-width="1.4" style="display:none"/>` +
     `</svg>`;
 
+  // 隊友點在哪。伺服器只會送自己這一隊的（它知道每個人的隊伍），
+  // 所以這裡拿到的就是隊友，不是全場一百個人。
+  //
+  // 畫成半透明的小點，自己那一顆是實心白的大點 —— 一眼分得出來。
+  room.onPins((pins) => {
+    const mates = mapSvg.querySelector("#mates");
+    if (!mates) return;
+    mates.innerHTML = pins
+      .map(
+        ([x, y]) =>
+          `<circle cx="${(x * 100).toFixed(1)}" cy="${(y * 170).toFixed(1)}" ` +
+          `r="2" fill="currentColor" opacity=".45"/>`,
+      )
+      .join("");
+  });
+
   mapSvg.addEventListener("click", (e) => {
-    if (!accepting || tapped) return;
+    // 可以一直改，時間到才算。
+    //
+    // 原本擋成「一人一次」是怕有人用二分搜尋逼近答案 —— 但分數本來就
+    // 等時間到才公布，過程中沒有任何回饋可以逼近，擋掉只是讓手滑點錯的人
+    // 整題報銷。
+    if (!accepting) return;
     const r = mapSvg.getBoundingClientRect();
     const x = (e.clientX - r.left) / r.width;
     const y = (e.clientY - r.top) / r.height;
@@ -296,7 +318,7 @@ function startPlaying(room: Room, name: string, team: TeamId): void {
       pin.setAttribute("cy", String(y * 170));
       pin.style.display = "";
     }
-    $("tapHint").textContent = "已送出，等公布";
+    $("tapHint").textContent = "已標記，還可以再改";
     void room.sendAction({ k: "tap", x, y });
   });
 
@@ -410,10 +432,16 @@ function startPlaying(room: Room, name: string, team: TeamId): void {
         tapped = false;
         const pin = mapSvg.querySelector<SVGCircleElement>("#mapPin");
         if (pin) pin.style.display = "none";
+        const mates = mapSvg.querySelector("#mates");
+        if (mates) mates.innerHTML = "";
       }
       // 提示要每次都更新，不能只在換題目時設 ——
       // 主持人按開始的時候題號沒變，提示就會卡在「等主持人開始」。
-      if (!tapped) $("tapHint").textContent = accepting ? "在地圖上點一下" : "等主持人開始";
+      if (!accepting) {
+        $("tapHint").textContent = tapped ? "時間到，等公布" : "等主持人開始";
+      } else if (!tapped) {
+        $("tapHint").textContent = "在地圖上點一下（可以一直改）";
+      }
     }
 
     if (control === "find") {

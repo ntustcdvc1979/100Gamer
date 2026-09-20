@@ -109,7 +109,7 @@ export function createGeoGame(): Game {
     title: "地理達人",
     // 地圖畫在右半邊，右上角的 QR 會整個蓋住宜蘭花蓮那一段
     hideQr: true,
-    brief: "個人賽。T 開始 30 秒，再按 T 提早公布。玩家在手機的台灣地圖上點位置。→ 換下一題。",
+    brief: "個人賽。30秒內，玩家在手機的地圖上點你認為的位置。",
 
     enter(ctx) {
       active = true;
@@ -123,15 +123,34 @@ export function createGeoGame(): Game {
 
     step(_dt, now, ctx) {
       if (running && now >= endsAt) reveal(ctx);
+
+      // 收件中才送隊友的點。公布之後投影幕上什麼都看得到了，
+      // 再送就是白燒頻寬。
+      if (running) {
+        const byTeam: Record<string, [number, number][]> = {};
+        for (const [uid, gu] of guesses) {
+          const a = ctx.field.actors.get(uid);
+          if (!a) continue;
+          // 小數點三位就夠了（約 200 公尺），多送的位數只是浪費
+          (byTeam[a.team] ??= []).push([
+            Math.round(gu.x * 1000) / 1000,
+            Math.round(gu.y * 1000) / 1000,
+          ]);
+        }
+        ctx.publishPins(byTeam);
+      }
     },
 
     action(uid, a, ctx) {
       if (a.k !== "tap" || !running) return;
-      // 一人一次。要改主意的話就能用二分搜尋逼近答案，
-      // 這一關本來就是考直覺，給人逼近就沒意思了。
-      if (guesses.has(uid)) return;
       if (!ctx.field.actors.has(uid)) return;
 
+      // 可以一直改，時間到才算。之前擋成「一人一次」是怕有人用二分搜尋
+      // 逼近答案 —— 但分數本來就等時間到才公布，過程中沒有任何回饋可以逼近，
+      // 擋掉只是讓手滑點錯的人整題報銷。
+      //
+      // km 和分數還是每次都先算好：時間到的時候要馬上排得出名次，
+      // 不能在那一幀才算一百次 haversine。
       const km = distanceKm(unproject(a.x, a.y), q());
       guesses.set(uid, { x: a.x, y: a.y, km, score: geoScore(km) });
     },
@@ -199,16 +218,20 @@ export function createGeoGame(): Game {
       g.lineWidth = Math.max(1.5, unit * 0.22);
       g.stroke(path);
 
-      // 大家點的位置
-      for (const [uid, gu] of guesses) {
-        const a = ctx.field.actors.get(uid);
-        g.globalAlpha = revealed ? 0.9 : 0.55;
-        g.fillStyle = a ? TEAMS[a.team].color : "#888";
-        g.beginPath();
-        g.arc(gu.x * box.w, gu.y * box.h, unit * 1.1, 0, Math.PI * 2);
-        g.fill();
+      // 大家點的位置。**只在公布之後畫** ——
+      // 收件中就畫出來的話，後面的人只要看投影幕上哪裡最密就好了，
+      // 這一關會變成比誰晚點。
+      if (revealed) {
+        for (const [uid, gu] of guesses) {
+          const a = ctx.field.actors.get(uid);
+          g.globalAlpha = 0.9;
+          g.fillStyle = a ? TEAMS[a.team].color : "#888";
+          g.beginPath();
+          g.arc(gu.x * box.w, gu.y * box.h, unit * 1.1, 0, Math.PI * 2);
+          g.fill();
+        }
+        g.globalAlpha = 1;
       }
-      g.globalAlpha = 1;
 
       if (revealed) {
         const t = project(q());

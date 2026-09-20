@@ -285,7 +285,7 @@ export function createShakeRunGame(): Game {
   return {
     id: "shakerun",
     title: "搖賽跑",
-    brief: `團體賽。全隊次數累加，跑 ${LAPS} 圈。一圈的下數可以在主控台調。T 開始，R 重來。`,
+    brief: `團體賽。全隊次數累加，跑 ${LAPS} 圈。`,
 
     enter: reset,
 
@@ -497,7 +497,7 @@ export function createShakeCarrotGame(): Game {
   return {
     id: "shakecarrot",
     title: "拔蘿蔔",
-    brief: "分組對抗。一分鐘內把手機往上拉就拔一根，哪一隊拔最多。T 開始，R 重來。",
+    brief: "分組對抗。一分鐘內把手機往上拉就拔一根，哪一隊拔最多。",
 
     enter: reset,
 

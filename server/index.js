@@ -379,6 +379,21 @@ wss.on("connection", (sock, req) => {
           break;
         }
 
+        case "pins": {
+          /* 地理達人：每支手機只收自己那一隊的座標。
+             這是伺服器唯一做「內容分流」的地方 —— 它之所以做得到，
+             是因為 players 裡有每個人的隊伍。整包廣播出去的話，
+             每支手機都會收到全場一百個座標，那正是規則一在防的扇出。 */
+          if (room.host !== uid) return;
+          const byTeam = m.v ?? {};
+          for (const c of room.clients.values()) {
+            if (c.role !== "play" || c.sock.readyState !== 1) continue;
+            const team = room.players[c.uid]?.team;
+            c.sock.send(JSON.stringify({ t: "pins", v: (team && byTeam[team]) || [] }));
+          }
+          break;
+        }
+
         case "clear": {
           if (room.host !== uid) return;
           room.players = {};
