@@ -101,7 +101,7 @@ export function createHeatMasterGame(): Game {
   return {
     id: "heatmaster",
     title: "火候達人",
-    brief: "個人賽。六道菜，T 開始計時。秒數兩秒後會淡掉，玩家要自己數。→ 換下一道。",
+    brief: "個人賽，請依畫面上的指令在最精準的時間動作。",
 
     enter(ctx) {
       index = 0;
@@ -194,8 +194,8 @@ export function createHeatMasterGame(): Game {
       g.font = `700 ${Math.round(unit * 3)}px system-ui, "Noto Sans TC", sans-serif`;
       g.fillText(
         running
-          ? `${d.seconds} 秒${d.verb}　已做 ${acts.size}`
-          : `按 T 開始　${d.seconds} 秒${d.verb}`,
+          ? `${d.seconds} 秒時${d.verb}　${acts.size}人已完成`
+          : `　${d.seconds} 秒時${d.verb}`,
         cx,
         cy + rr + unit * 7,
       );

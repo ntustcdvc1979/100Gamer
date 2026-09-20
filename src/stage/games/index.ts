@@ -13,7 +13,8 @@
      7  搖賽跑      個人賽。再站起來
      8  拍照找顏色  個人賽。離開座位去找東西，換一個身體節奏
      9  拔蘿蔔      分組對抗。一分鐘，全場最後一次爆發
-    10  火候達人    個人賽。收尾，最後一個人的名字留在投影幕上
+    10  火候達人    個人賽。六道菜
+    11  總排行榜    頒獎。從第十名往上一個一個揭曉，可以停著讓大家拍照
 
    不用全部跑完 —— 主控台可以跳關。十關全開大約 50 分鐘。
 
@@ -27,6 +28,7 @@
    ============================================================ */
 
 import { createFindCharGame } from "./findchar";
+import { createFinaleGame } from "./finale";
 import { createGatherGame } from "./gather";
 import { createGeoGame } from "./geo";
 import { createHeatMasterGame } from "./heatmaster";
@@ -48,6 +50,7 @@ export function createGames(): Game[] {
     createPhotoColorGame(),
     createShakeCarrotGame(),
     createHeatMasterGame(),
+    createFinaleGame(),
   ];
 }
 

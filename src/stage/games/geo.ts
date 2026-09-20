@@ -31,17 +31,28 @@ interface Guess {
 }
 
 export function createGeoGame(): Game {
+  /**
+   * 題庫。config/geo.ts 是預設值，主控台可以整包換掉（geoList）
+   * 或換掉某一題的照片（geoPhoto）。
+   *
+   * 照片存在這裡而不是 state：它只給投影幕看。一張壓過的圖還是有幾十 KB，
+   * 乘以一百支手機就是幾 MB 的下行，而玩家低頭看手機時要看的是地圖，
+   * 不是題目照片。
+   */
+  let items = GEO_QUESTIONS.map((q) => ({ ...q }));
+  /** index → 已經載好的照片。主控台傳上來的是 data URI。 */
+  const photos = new Map<number, HTMLImageElement>();
   let index = 0;
+  /** 現在是不是正在這一關。主控台在別的關卡改題目時，不可以 publish 出去 —— 那會把當下的畫面蓋掉。 */
+  let active = false;
   let running = false;
   let revealed = false;
   let endsAt = 0;
   const guesses = new Map<string, Guess>();
   let ranked: [string, Guess][] = [];
-  /** 照片只載一次，不要每幀重建 Image */
-  let photo: HTMLImageElement | null = null;
 
   function q() {
-    return GEO_QUESTIONS[index] as (typeof GEO_QUESTIONS)[number];
+    return items[index] as (typeof items)[number];
   }
 
   function announce(ctx: GameContext, hint: string): void {
@@ -53,7 +64,6 @@ export function createGeoGame(): Game {
       accepting: running,
       revealed,
       place: q().name + (q().hint ? `（${q().hint}）` : ""),
-      placeImg: q().img ?? "",
       hint,
       options: [],
     });
@@ -64,12 +74,6 @@ export function createGeoGame(): Game {
     revealed = false;
     guesses.clear();
     ranked = [];
-    photo = null;
-    const img = q().img;
-    if (img) {
-      photo = new Image();
-      photo.src = import.meta.env.BASE_URL + img;
-    }
     ctx.field.reset(false);
     announce(ctx, `第 ${index + 1} 題：${q().name}　等主持人開始`);
   }
@@ -103,11 +107,18 @@ export function createGeoGame(): Game {
   return {
     id: "geo",
     title: "地理達人",
+    // 地圖畫在右半邊，右上角的 QR 會整個蓋住宜蘭花蓮那一段
+    hideQr: true,
     brief: "個人賽。T 開始 30 秒，再按 T 提早公布。玩家在手機的台灣地圖上點位置。→ 換下一題。",
 
     enter(ctx) {
+      active = true;
       index = 0;
       load(ctx);
+    },
+
+    exit() {
+      active = false;
     },
 
     step(_dt, now, ctx) {
@@ -144,6 +155,7 @@ export function createGeoGame(): Game {
 
       // 照片（有放才畫）
       let infoY = unit * 37;
+      const photo = photos.get(index);
       if (photo?.complete && photo.naturalWidth > 1) {
         const pw = Math.min(box.x - unit * 8, unit * 44);
         const ph = (photo.naturalHeight / photo.naturalWidth) * pw;
@@ -155,7 +167,7 @@ export function createGeoGame(): Game {
       g.fillStyle = "#F2A72C";
       const left = running ? Math.ceil((endsAt - now) / 1000) : 0;
       g.fillText(
-        revealed ? "公布答案" : running ? `${left} 秒　已作答 ${guesses.size}` : "按 T 開始",
+        revealed ? "公布答案" : running ? `${left} 秒　${guesses.size}人已作答` : "按 T 開始",
         unit * 4,
         infoY,
       );
@@ -232,6 +244,36 @@ export function createGeoGame(): Game {
       g.restore();
     },
 
+    /**
+     * 主控台改題庫。整包換掉，然後回到第一題 ——
+     * 編輯到一半還停在舊題目的話，畫面和資料會對不起來。
+     */
+    setGeoList(list, ctx) {
+      items = list.map((it) => ({ ...it }));
+      if (items.length === 0) items = GEO_QUESTIONS.map((q) => ({ ...q }));
+      photos.clear();
+      index = 0;
+      running = false;
+      revealed = false;
+      guesses.clear();
+      ranked = [];
+      // 只有人在這一關的時候才 publish。在別的關卡改題目時 publish
+      // 會把那一關的 state 蓋掉，一百支手機會瞬間跳到地理達人的畫面。
+      if (active) load(ctx);
+    },
+
+    /** 主控台換某一題的照片。data URI 直接塞進 Image。 */
+    setGeoPhoto(i, dataUri) {
+      if (i < 0 || i >= items.length) return;
+      if (!dataUri) {
+        photos.delete(i);
+        return;
+      }
+      const img = new Image();
+      img.src = dataUri;
+      photos.set(i, img);
+    },
+
     key(e, ctx) {
       if (e.key === "t" || e.key === "T") {
         if (revealed) return true;
@@ -244,7 +286,7 @@ export function createGeoGame(): Game {
         announce(ctx, `${q().name} 在哪裡？在地圖上點一下`);
         return true;
       }
-      if (e.key === "ArrowRight" && index < GEO_QUESTIONS.length - 1) {
+      if (e.key === "ArrowRight" && index < items.length - 1) {
         index++;
         load(ctx);
         return true;

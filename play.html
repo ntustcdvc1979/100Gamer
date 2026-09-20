@@ -72,9 +72,9 @@
 
   <!-- 搖手機 -->
   <div class="pane" id="shakePane" hidden>
-    <div class="shakeBig">🫨</div>
+    <div class="shakeBig" id="shakeBig">🫨</div>
     <div class="bigNum" id="shakeCount">0</div>
-    <p class="paneLabel">用力搖手機！</p>
+    <p class="paneLabel" id="shakeVerb">用力搖手機！</p>
     <button class="btn ghost" id="armBtn2">開啟感測器</button>
     <button class="btn" id="shakeBtn">感測器不能用？狂按這裡</button>
   </div>
@@ -82,7 +82,6 @@
   <!-- 地理達人 -->
   <div class="pane" id="tapPane" hidden>
     <p class="paneLabel" id="tapPlace">—</p>
-    <img id="tapImg" class="placeImg" alt="題目照片" hidden>
     <div class="map" id="map"></div>
     <p class="paneHint" id="tapHint">在地圖上點一下</p>
   </div>

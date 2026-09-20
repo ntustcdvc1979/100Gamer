@@ -45,6 +45,25 @@
         <button class="ctl board" id="btnBoard">🏆 投影幕顯示排行榜</button>
         <button class="ctl danger" id="btnZero">總分歸零</button>
       </div>
+
+      <h2>搖賽跑</h2>
+      <div class="setting">
+        <label for="perLap">一圈要幾下（全隊累計）</label>
+        <div class="row">
+          <input id="perLap" type="number" min="100" step="100" value="3000">
+          <button class="ctl" id="btnPerLap">套用</button>
+        </div>
+        <p class="note">一隊 30 人、一個人約 4–5 下／秒的話，3000 下大約 23 秒一圈。</p>
+      </div>
+
+      <h2>地理達人題目</h2>
+      <div class="geo" id="geoList"></div>
+      <div class="row">
+        <button class="ctl" id="btnGeoAdd">＋ 新增一題</button>
+        <button class="ctl primary" id="btnGeoSave">套用到投影幕</button>
+      </div>
+      <p class="note">照片只會出現在投影幕上，不會傳到玩家手機。
+        經緯度可以用 Google 地圖右鍵「這是哪裡？」查。</p>
     </section>
 
     <section class="col wide">

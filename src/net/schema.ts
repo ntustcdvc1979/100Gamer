@@ -87,9 +87,14 @@ export interface RoomState {
   rows?: number;
   cols?: number;
 
-  /** 地理達人：這一題的地名與照片路徑。 */
+  /**
+   * 地理達人：這一題的地名。
+   *
+   * 照片刻意不放進來 —— 它只給投影幕看。一張壓過的照片還是有幾十 KB，
+   * 乘以一百支手機就是幾 MB 的下行，而玩家低頭看手機的時候本來就
+   * 看不到題目照片（他要看的是地圖）。
+   */
   place?: string;
-  placeImg?: string;
 
   /** 這一輪還收不收（拍照／翻面）。時間到之後手機要自己鎖起來。 */
   accepting?: boolean;
@@ -186,7 +191,24 @@ export type Command =
   /** 把所有人的總分歸零 */
   | { k: "resetScores" }
   /** 把某個人踢出去。伺服器處理，不是投影幕。 */
-  | { k: "kick"; uid: string };
+  | { k: "kick"; uid: string }
+  /** 改一個數值設定，例如賽跑一圈要幾下。 */
+  | { k: "setting"; key: string; value: number }
+  /** 改地理達人的題庫（文字部分）。 */
+  | { k: "geoList"; list: GeoItem[] }
+  /**
+   * 換掉某一題的照片。跟 geoList 分開送是因為照片大得多 ——
+   * 一張壓過的圖幾十 KB，跟文字綁在一起送的話，改一個字就要重傳全部的圖。
+   */
+  | { k: "geoPhoto"; index: number; dataUri: string };
+
+/** 主控台編輯地理題目時傳的一筆。照片不在裡面。 */
+export interface GeoItem {
+  name: string;
+  hint?: string;
+  lon: number;
+  lat: number;
+}
 
 /* ---------- 計分表：投影幕 → 主控台 ---------- */
 

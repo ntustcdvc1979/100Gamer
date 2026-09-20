@@ -26,13 +26,29 @@ export interface ShakeCounter {
   readonly sensing: boolean;
   /** 沒有感測器的人用按鈕，一下算一下。 */
   bump(): void;
+  /**
+   * 切換判定方式。
+   *   shake 任何方向的強烈晃動（拔河、賽跑）
+   *   pull  比較用力、比較慢的一拉（拔蘿蔔）
+   */
+  setMode(mode: "shake" | "pull"): void;
   dispose(): void;
 }
+
+/**
+ * 拉的門檻比搖高、冷卻比搖長。
+ *
+ * 人手往上拔一根蘿蔔大概 3–4 下/秒就是極限，跟甩手的 12 下/秒差很多。
+ * 用同一組參數的話，狂甩的人會被當成在狂拉，這一關就變成另一個搖手機。
+ */
+const PULL_THRESHOLD = 7;
+const PULL_COOLDOWN_MS = 220;
 
 export function createShakeCounter(): ShakeCounter {
   let count = 0;
   let armed = true;
   let lastAt = 0;
+  let mode: "shake" | "pull" = "shake";
   // -1e9 而不是 0：performance.now() 在開頁後的頭兩秒本來就小於 2000，
   // 初始值放 0 的話「最近有沒有收到事件」在那兩秒會一律成立，
   // 於是沒有感測器的手機一進來會先騙人說「已偵測到」。
@@ -50,11 +66,13 @@ export function createShakeCounter(): ShakeCounter {
     lastEventAt = performance.now();
     const delta = Math.abs(mag - GRAVITY);
     const now = performance.now();
-    if (armed && delta > THRESHOLD && now - lastAt > COOLDOWN_MS) {
+    const threshold = mode === "pull" ? PULL_THRESHOLD : THRESHOLD;
+    const cooldown = mode === "pull" ? PULL_COOLDOWN_MS : COOLDOWN_MS;
+    if (armed && delta > threshold && now - lastAt > cooldown) {
       count++;
       lastAt = now;
       armed = false;
-    } else if (!armed && delta < THRESHOLD * 0.5) {
+    } else if (!armed && delta < threshold * 0.5) {
       // 掉回來才重新武裝，一個峰只算一下
       armed = true;
     }
@@ -72,6 +90,9 @@ export function createShakeCounter(): ShakeCounter {
     },
     bump() {
       count++;
+    },
+    setMode(m) {
+      mode = m;
     },
     dispose() {
       window.removeEventListener("devicemotion", onMotion);

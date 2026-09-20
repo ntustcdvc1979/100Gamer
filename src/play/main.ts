@@ -354,6 +354,18 @@ function startPlaying(room: Room, name: string, team: TeamId): void {
     // 感應器那一格只有用得到的關卡才顯示
     sensorEl.hidden = control !== "motion" && control !== "shake";
 
+    if (control === "shake") {
+      // 拔蘿蔔是「拉」，拔河和賽跑是「搖」。判定門檻差很多 ——
+      // 用同一組參數的話，狂甩的人會被當成在狂拉。
+      const pull = gesture === "lift";
+      shaker.setMode(pull ? "pull" : "shake");
+      $("shakeBig").textContent = pull ? "⬆️" : "🫨";
+      $("shakeVerb").textContent = pull ? "把手機往上拉！" : "用力搖手機！";
+      $("shakeBtn").textContent = pull
+        ? "感測器不能用？狂按這裡"
+        : "感測器不能用？狂按這裡";
+    }
+
     if (control === "camera") {
       $("camTarget").style.background = targetHex || "#888";
       $("shotLabel").classList.toggle("off", !accepting || uploaded);
@@ -391,10 +403,6 @@ function startPlaying(room: Room, name: string, team: TeamId): void {
 
     if (control === "tap") {
       $("tapPlace").textContent = s?.place ?? "";
-      const img = $<HTMLImageElement>("tapImg");
-      const src = s?.placeImg ?? "";
-      img.hidden = !src;
-      if (src) img.src = import.meta.env.BASE_URL + src;
       // 換題目就解鎖
       const key = `${s?.game}:${s?.round}`;
       if (key !== lastRoundKey) {

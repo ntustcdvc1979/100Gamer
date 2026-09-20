@@ -86,6 +86,8 @@ async function main(): Promise<void> {
     game.enter(ctx);
     $("gameTitle").textContent = game.title;
     $("gameBrief").textContent = game.brief;
+    // 有些關卡（地理達人、頒獎）會用到右上角那一塊，QR 得收起來
+    $("qrPanel").hidden = game.hideQr === true;
     renderMenu();
   }
 
@@ -169,6 +171,18 @@ async function main(): Promise<void> {
         break;
       case "resetScores":
         field.clearTotals();
+        break;
+      // 設定與題庫要送給**所有**關卡，不是只有目前這一關。
+      // 主持人本來就是在別的關卡時先把題目和參數準備好的，
+      // 只送給當前關卡的話，人在頒獎畫面改地理題目會完全沒有反應。
+      case "setting":
+        for (const g of games) g.setting?.(cmd.key, cmd.value);
+        break;
+      case "geoList":
+        for (const g of games) g.setGeoList?.(cmd.list, ctx);
+        break;
+      case "geoPhoto":
+        for (const g of games) g.setGeoPhoto?.(cmd.index, cmd.dataUri);
         break;
     }
   });

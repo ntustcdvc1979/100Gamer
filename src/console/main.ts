@@ -29,13 +29,14 @@ const GAMES = [
   { id: "gather", title: "聚沙成塔", note: "全體協作・搖桿" },
   { id: "tugofwar", title: "四方拔河", note: "分組對抗・搖桿" },
   { id: "pickside", title: "選邊站", note: "個人賽・搖桿" },
-  { id: "shaketug", title: "搖拔河", note: "紅黃 vs 綠藍・搖手機" },
+  { id: "shaketug", title: "搖拔河", note: "紅vs黃、綠vs藍・搖手機" },
   { id: "geo", title: "地理達人", note: "個人賽・點地圖・30 秒" },
   { id: "findchar", title: "文字找不同", note: "個人賽・30 秒" },
-  { id: "shakerun", title: "搖賽跑", note: "個人賽・搖手機" },
+  { id: "shakerun", title: "搖賽跑", note: "團體賽・搖手機" },
   { id: "photocolor", title: "拍照找顏色", note: "個人賽・60 秒" },
-  { id: "shakecarrot", title: "拔蘿蔔", note: "分組對抗・搖手機・1 分鐘" },
+  { id: "shakecarrot", title: "拔蘿蔔", note: "分組對抗・拉手機・1 分鐘" },
   { id: "heatmaster", title: "火候達人", note: "個人賽・六道菜" },
+  { id: "finale", title: "總排行榜", note: "頒獎・一個一個揭曉" },
 ];
 
 interface GoogleCredentialResponse {
@@ -213,6 +214,18 @@ async function connect(token?: string, insecure = false): Promise<void> {
     room.sendCommand({ k: "resetScores" });
   });
 
+  /* ---- 搖賽跑：一圈要幾下 ---- */
+  $("btnPerLap").addEventListener("click", () => {
+    const v = Number($<HTMLInputElement>("perLap").value);
+    if (!Number.isFinite(v) || v < 100) return;
+    room.sendCommand({ k: "setting", key: "perLap", value: v });
+    $("btnPerLap").textContent = "已套用";
+    setTimeout(() => ($("btnPerLap").textContent = "套用"), 1200);
+  });
+
+  /* ---- 地理達人題庫 ---- */
+  setupGeoEditor(room);
+
   /* ---- 剔除玩家 ---- */
   // 綁在 tbody 上而不是每一列 —— 計分表每半秒整個重畫，
   // 綁在按鈕上的 listener 會跟著被丟掉。
@@ -262,3 +275,171 @@ function escapeHtml(s: string): string {
 }
 
 void main();
+
+/* ============================================================
+   地理達人的題庫編輯器
+
+   文字和照片分開送：
+     geoList   整包文字，改一個字就重送全部（很小，無所謂）
+     geoPhoto  一次一張照片，只在真的換圖時送
+
+   綁在一起的話，改一個地名就要把所有照片重傳一次 ——
+   七張壓過的圖也有幾百 KB，在現場的網路上會卡住。
+
+   照片在這裡就先壓過再送，不是原檔：手機拍的原圖動輒好幾 MB，
+   而投影幕上只佔半個畫面，800px 就綽綽有餘。
+   ============================================================ */
+
+interface GeoRow {
+  name: string;
+  hint: string;
+  lon: number;
+  lat: number;
+  /** 已經壓過的 data URI，空字串 = 沒有照片 */
+  photo: string;
+  /** 這一張換過沒，決定要不要重送 */
+  dirty: boolean;
+}
+
+/** 預設題庫。要跟 src/config/geo.ts 一致，改那邊記得也改這邊。 */
+const DEFAULT_GEO: GeoRow[] = [
+  { name: "飛機巷", hint: "看飛機降落的那條巷子", lon: 121.2205, lat: 25.0755, photo: "", dirty: false },
+  { name: "台北 101", hint: "", lon: 121.5645, lat: 25.034, photo: "", dirty: false },
+  { name: "日月潭", hint: "", lon: 120.915, lat: 23.857, photo: "", dirty: false },
+  { name: "阿里山", hint: "", lon: 120.803, lat: 23.511, photo: "", dirty: false },
+  { name: "太魯閣", hint: "", lon: 121.622, lat: 24.158, photo: "", dirty: false },
+  { name: "鵝鑾鼻燈塔", hint: "台灣最南端", lon: 120.851, lat: 21.902, photo: "", dirty: false },
+  { name: "台科大", hint: "我們學校", lon: 121.5405, lat: 25.0135, photo: "", dirty: false },
+];
+
+const GEO_KEY = "p100:geo";
+/** 投影幕上只佔半個畫面，800px 綽綽有餘。 */
+const PHOTO_MAX = 800;
+
+function setupGeoEditor(room: Room): void {
+  let rows: GeoRow[] = load();
+
+  function load(): GeoRow[] {
+    try {
+      const raw = localStorage.getItem(GEO_KEY);
+      if (raw) return JSON.parse(raw) as GeoRow[];
+    } catch {
+      /* 壞掉就用預設的 */
+    }
+    return DEFAULT_GEO.map((r) => ({ ...r }));
+  }
+
+  function save(): void {
+    try {
+      localStorage.setItem(GEO_KEY, JSON.stringify(rows));
+    } catch {
+      // 照片塞滿 localStorage 是會發生的事（一張 100KB × 七張）。
+      // 存不下就算了，題目還在記憶體裡，這一場跑得完。
+      console.warn("[p100] 題庫存不進 localStorage，可能是照片太多");
+    }
+  }
+
+  function render(): void {
+    $("geoList").innerHTML = rows
+      .map(
+        (r, i) => `
+        <div class="geoItem" data-i="${i}">
+          <div class="line">
+            <input type="text" class="name" data-f="name" value="${esc(r.name)}" placeholder="地名">
+            <button class="del" data-del="${i}">刪</button>
+          </div>
+          <div class="line">
+            <input type="text" data-f="hint" value="${esc(r.hint)}" placeholder="提示（可留空）">
+          </div>
+          <div class="line">
+            <input type="number" data-f="lon" step="0.0001" value="${r.lon}" placeholder="經度">
+            <input type="number" data-f="lat" step="0.0001" value="${r.lat}" placeholder="緯度">
+          </div>
+          <div class="pic">
+            ${r.photo ? `<img src="${r.photo}" alt="">` : "<span>沒有照片</span>"}
+            <label class="fileBtn">選照片
+              <input type="file" accept="image/*" data-photo="${i}" hidden>
+            </label>
+          </div>
+        </div>`,
+      )
+      .join("");
+  }
+
+  $("geoList").addEventListener("input", (e) => {
+    const el = e.target as HTMLInputElement;
+    const item = el.closest<HTMLElement>(".geoItem");
+    const field = el.dataset.f;
+    if (!item || !field) return;
+    const row = rows[Number(item.dataset.i)];
+    if (!row) return;
+    if (field === "lon" || field === "lat") row[field] = Number(el.value);
+    else if (field === "name" || field === "hint") row[field] = el.value;
+    save();
+  });
+
+  $("geoList").addEventListener("click", (e) => {
+    const del = (e.target as HTMLElement).dataset.del;
+    if (del === undefined) return;
+    rows.splice(Number(del), 1);
+    save();
+    render();
+  });
+
+  $("geoList").addEventListener("change", (e) => {
+    const el = e.target as HTMLInputElement;
+    const idx = el.dataset.photo;
+    if (idx === undefined) return;
+    const file = el.files?.[0];
+    el.value = "";
+    if (!file) return;
+    void (async () => {
+      const row = rows[Number(idx)];
+      if (!row) return;
+      row.photo = await shrink(file);
+      row.dirty = true;
+      save();
+      render();
+      // 馬上送出去，主持人才看得到投影幕變了
+      room.sendCommand({ k: "geoPhoto", index: Number(idx), dataUri: row.photo });
+      row.dirty = false;
+    })();
+  });
+
+  $("btnGeoAdd").addEventListener("click", () => {
+    rows.push({ name: "新地點", hint: "", lon: 121.0, lat: 23.5, photo: "", dirty: false });
+    save();
+    render();
+  });
+
+  $("btnGeoSave").addEventListener("click", () => {
+    room.sendCommand({
+      k: "geoList",
+      list: rows.map((r) => ({ name: r.name, hint: r.hint, lon: r.lon, lat: r.lat })),
+    });
+    // 換題庫會把投影幕那邊的照片清掉，所以有圖的都要重送
+    rows.forEach((r, i) => {
+      if (r.photo) room.sendCommand({ k: "geoPhoto", index: i, dataUri: r.photo });
+    });
+    $("btnGeoSave").textContent = "已套用";
+    setTimeout(() => ($("btnGeoSave").textContent = "套用到投影幕"), 1400);
+  });
+
+  render();
+}
+
+/** 壓縮照片。長邊 PHOTO_MAX、JPEG 0.75。 */
+async function shrink(file: File): Promise<string> {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, PHOTO_MAX / Math.max(bitmap.width, bitmap.height));
+  const c = document.createElement("canvas");
+  c.width = Math.round(bitmap.width * scale);
+  c.height = Math.round(bitmap.height * scale);
+  c.getContext("2d")?.drawImage(bitmap, 0, 0, c.width, c.height);
+  bitmap.close();
+  return c.toDataURL("image/jpeg", 0.75);
+}
+
+function esc(s: string): string {
+  return s.replace(/"/g, "&quot;").replace(/</g, "&lt;");
+}

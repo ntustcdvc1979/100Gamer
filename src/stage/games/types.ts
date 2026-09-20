@@ -9,7 +9,7 @@
    即時座標留在 Field 裡就好，投影幕才需要看到。
    ============================================================ */
 
-import type { PlayerAction, RoomState } from "../../net/schema";
+import type { GeoItem, PlayerAction, RoomState } from "../../net/schema";
 import type { Surface } from "../canvas";
 import type { Field } from "../render";
 
@@ -26,6 +26,14 @@ export interface Game {
   readonly title: string;
   /** 主持人提示，開場前按 Esc 看得到 */
   readonly brief: string;
+
+  /**
+   * 這一關要不要把右上角的 QR 收起來。
+   *
+   * QR 平常該留著（遲到的人隨時可以掃），但有些關卡的畫面會用到
+   * 右上角那一塊 —— 地理達人的地圖就整個被蓋住。
+   */
+  readonly hideQr?: boolean;
 
   /** 進到這一關。負責把 field 重設、把第一句提示 publish 出去。 */
   enter(ctx: GameContext): void;
@@ -47,6 +55,15 @@ export interface Game {
    * 慣例：T = 開始／暫停這一局，R = 重來。
    */
   key?(e: KeyboardEvent, ctx: GameContext): boolean;
+
+  /** 主控台調數值設定（例如賽跑一圈要幾下）。 */
+  setting?(key: string, value: number): void;
+
+  /** 主控台改題庫（目前只有地理達人用得到）。 */
+  setGeoList?(list: GeoItem[], ctx: GameContext): void;
+
+  /** 主控台換某一題的照片。dataUri 留空 = 拿掉。 */
+  setGeoPhoto?(index: number, dataUri: string): void;
 
   /** 離開這一關時清東西。 */
   exit?(ctx: GameContext): void;
