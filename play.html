@@ -69,18 +69,20 @@
     <button class="btn" id="actBtn" disabled>翻面！</button>
     <p class="paneHint" id="motionHint"></p>
     <p class="fine" id="motionFine">手機螢幕朝上放好，時間到翻過來。</p>
-    <p class="fine">螢幕關掉就偵測不到了，別鎖屏。</p>
+    <p class="fine">遊玩中請將螢幕保持恆亮。</p>
   </div>
 
   <!-- 搖手機 -->
   <div class="pane" id="shakePane" hidden>
     <div class="shakeBig" id="shakeBig">🫨</div>
-    <div class="bigNum" id="shakeCount">0</div>
+    <!-- 這個數字就是投影幕在算的那個數（這一關的，不是開頁以來的累計），
+         單位也寫出來：拔蘿蔔是「根」、賽跑是「步」、拔河是「下」。 -->
+    <div class="bigNum"><span id="shakeCount">0</span><span class="unit" id="shakeUnit">下</span></div>
     <p class="paneLabel" id="shakeVerb">用力搖手機！</p>
     <!-- 搖動關卡沒有動作鈕可以代替（按鈕比搖手機快太多，等於開一條作弊路）。
          所以這裡留一顆重新要權限的按鈕當最後手段，感測器正常時會自己收起來。 -->
     <button class="btn ghost" id="armBtn2" hidden>重新開啟感測器</button>
-    <p class="fine">這一關一定要用搖的，沒有按鈕可以代替。<br>螢幕關掉就不會計數了，把手機拿著別鎖屏。</p>
+    <p class="fine">這一關一定要用搖的，沒有按鈕可以代替。<br>遊玩中請將螢幕保持恆亮。</p>
   </div>
 
   <!-- 地理達人 -->

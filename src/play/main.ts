@@ -221,6 +221,10 @@ function startPlaying(room: Room, name: string, team: TeamId, motionOk: FlipSupp
   let targetHex = "";
   let armed = false;
   let startedAt = 0;
+  /** 這一關開始時的搖動累計數。畫面上顯示的是「現在 - 這個」。 */
+  let shakeBase = 0;
+  /** 已經記過基準的那一關。 */
+  let shakeKey = "";
   /** 已經備妥過的那一題。見下面 control === "motion" 的說明。 */
   let motionRoundKey = "";
 
@@ -442,6 +446,26 @@ function startPlaying(room: Room, name: string, team: TeamId, motionOk: FlipSupp
       $("shakeBig").textContent = pull ? "⬆️" : "🫨";
       $("shakeVerb").textContent = pull ? "把手機往上拉！" : "用力搖手機！";
 
+      /* 手機上的數字要跟投影幕算的是同一個東西。
+         shaker.count 是「這支手機開頁以來總共動了幾下」，永遠不歸零 ——
+         直接顯示的話，玩過拔河再去拔蘿蔔，畫面上會是上一關累積的幾百下，
+         而投影幕算的是這一關從零開始的數量。兩邊講的不是同一件事。
+
+         所以顯示的是「這一關開始到現在」：換關卡或重新開始時記下基準，
+         畫面上顯示的是差值。投影幕那邊 ShakeMeter 也是在同一個時機
+         重抓基準（run(true) 會 drain、reset 會 reset），所以兩邊對得起來。
+
+         送出去的還是累計值，不要動 —— 那是為了掉封包也補得回來。 */
+      const key = `${s?.game}:${s?.round}`;
+      if (key !== shakeKey) {
+        shakeKey = key;
+        shakeBase = shaker.count;
+      }
+      if (accepting && !wasAccepting) shakeBase = shaker.count;
+
+      // 單位講清楚，「3」是三根蘿蔔還是三下才不用猜
+      $("shakeUnit").textContent =
+        s?.game === "shakecarrot" ? "根" : s?.game === "shakerun" ? "步" : "下";
     }
 
     if (control === "camera") {
@@ -460,10 +484,10 @@ function startPlaying(room: Room, name: string, team: TeamId, motionOk: FlipSupp
       actBtn.textContent = verb + "！";
       $("motionFine").textContent =
         gesture === "flip"
-          ? "手機螢幕朝上放好，時間到翻過來。感測器不能用就直接按按鈕。"
+          ? "手機螢幕朝上放好，算準時間翻過來。若不能用感測器則按按鈕。"
           : gesture === "lift"
-            ? "手機平放在桌上或手上，時間到整支拿起來。感測器不能用就直接按按鈕。"
-            : "手機拿好，時間到用力晃幾下。感測器不能用就直接按按鈕。";
+            ? "算準時間將手機往上提起。若不能用感測器則按按鈕。"
+            : "手機拿好，算準時間用力晃幾下。若不能用感測器則按按鈕。";
 
       /* 備妥的條件是「剛開始」**或**「這一題還沒備過」，兩個都要。
 
@@ -537,8 +561,9 @@ function startPlaying(room: Room, name: string, team: TeamId, motionOk: FlipSupp
     if (control === "joystick") {
       room.pushInput([stick.value[0], stick.value[1]]);
     } else if (control === "shake") {
+      // 送累計值（掉封包補得回來），畫面顯示這一關的數量（跟投影幕同一個數）
       room.pushInput([0, 0], shaker.count);
-      $("shakeCount").textContent = String(shaker.count);
+      $("shakeCount").textContent = String(Math.max(0, shaker.count - shakeBase));
     }
     raf = requestAnimationFrame(loop);
   };

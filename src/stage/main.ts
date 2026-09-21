@@ -98,6 +98,8 @@ async function main(): Promise<void> {
     game?.exit?.(ctx);
     index = clamped;
     game = games[index] as Game;
+    // 先清掉上一關的 state 再讓新的關卡填 —— 不清的話舊欄位會沿用下去
+    room.clearGameState();
     game.enter(ctx);
     $("gameTitle").textContent = game.title;
     // brief 是給主持人看的操作說明（按什麼鍵、怎麼換題），

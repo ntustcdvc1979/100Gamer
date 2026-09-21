@@ -89,6 +89,9 @@ export function createShakeTugGame(): Game {
       phase: "playing",
       game: "shaketug",
       control: "shake",
+      // 一定要寫出來。省略的話會沿用上一關留在 state 裡的值 ——
+      // 玩過拔蘿蔔再回來，手機會叫大家「把手機往上拉」。
+      gesture: "shake",
       round: 1,
       accepting: running,
       hint,
@@ -250,25 +253,30 @@ export function createShakeTugGame(): Game {
 /* ============================================================
    二、熱血賽跑 —— 團體賽
 
-   同一隊所有人的次數累加起來推動同一個隊伍角色。
-   一圈要幾下由主控台設定（Command k:"setting"）。
+   由左跑到右，全程 N 步。同一隊所有人搖的次數累加起來推動同一個角色。
+   一搖一步，全程幾步由主控台設定（Command k:"setting"）。
 
-   預設 3000：一隊約 30 個人，一個人狂搖大約 4–5 下/秒，
-   一隊就是每秒 130 下上下，一圈約 23 秒。兩圈約 45 秒 ——
+   為什麼是直線不是跑道：橢圓跑道要用「跑了幾圈」表示進度，
+   而圈數是一個換算過的數字 —— 手機上寫 5、投影幕上寫 0.03 圈，
+   兩邊講的不是同一件事。直線的話「還差多少」用看的就知道，
+   而且四隊誰在前面一眼分得出來，不用去數誰超過誰一圈。
+
+   預設 6000 步：一隊約 30 個人，一個人狂搖大約 4–5 下/秒，
+   一隊就是每秒 130 步上下，全程約 45 秒 ——
    剛好是「喊得動但不會喊到沒力」的長度。
 
    ⚠️ 這裡用總和不是人均（這是刻意的，也是要求的玩法）：
-   人多的隊就是佔便宜。所以畫面上會寫出每一隊幾個人，
-   主持人看得到要不要調人或調一圈的下數。
+   人多的隊就是佔便宜。主控台看得到各隊人數，
+   要調人或調全程步數都在那裡。
    ============================================================ */
-const LAPS = 2;
 
 export function createShakeRunGame(): Game {
   const meter = new ShakeMeter();
   let running = false;
-  let perLap = 3000;
+  /** 全程幾步。主控台可調。 */
+  let goalSteps = 6000;
   let finishedAt = 0;
-  /** 每一隊累計的次數 */
+  /** 每一隊跑了幾步 */
   const total: Record<string, number> = {};
   let podium: TeamId[] = [];
 
@@ -277,6 +285,9 @@ export function createShakeRunGame(): Game {
       phase: "playing",
       game: "shakerun",
       control: "shake",
+      // 一定要寫出來。省略的話會沿用上一關留在 state 裡的值 ——
+      // 玩過拔蘿蔔再回來，手機會叫大家「把手機往上拉」。
+      gesture: "shake",
       round: 1,
       accepting: running,
       hint,
@@ -291,13 +302,13 @@ export function createShakeRunGame(): Game {
     for (const id of TEAM_IDS) total[id] = 0;
     meter.reset();
     ctx.field.reset(false);
-    announce(ctx, `團體賽！全隊一起搖，跑 ${LAPS} 圈。等主持人喊開始`);
+    announce(ctx, `團體賽！全隊一起搖，一搖一步，全程 ${goalSteps} 步。等主持人喊開始`);
   }
 
   return {
     id: "shakerun",
     title: "熱血賽跑",
-    brief: `團體賽。全隊次數累加，跑 ${LAPS} 圈。`,
+    brief: "團體賽。全隊次數累加，一搖一步，由左跑到右。",
 
     enter: reset,
 
@@ -306,7 +317,7 @@ export function createShakeRunGame(): Game {
       const teams = byTeam(ctx, meter.drain(ctx));
       for (const id of TEAM_IDS) {
         total[id] = (total[id] ?? 0) + teams[id].sum;
-        if ((total[id] ?? 0) >= perLap * LAPS && !podium.includes(id)) {
+        if ((total[id] ?? 0) >= goalSteps && !podium.includes(id)) {
           podium.push(id);
           if (podium.length === 1) finishedAt = now;
           // 名次分數給全隊每一個人
@@ -325,79 +336,97 @@ export function createShakeRunGame(): Game {
 
     draw(now, ctx) {
       const { ctx: g, w, h, unit } = ctx.surface;
-      const cx = w / 2;
-      const cy = h * 0.5;
-      const rx = w * 0.34;
-      const ry = h * 0.32;
+      /* 左邊留一塊寫隊名和步數，右邊留一塊給終點線。
+         角色從 startX 跑到 endX，不繞圈 —— 位置本身就是進度。 */
+      const startX = w * 0.26;
+      // 終點留在 QR 左邊。QR 在右上角，跑到 0.9 的話終點線會被它蓋住。
+      const endX = w * 0.82;
+      const laneH = h * 0.13;
+      const top = h * 0.22;
+      const bottom = top + laneH * 4;
 
-      // 跑道（橢圓），四條道
-      for (let lane = 0; lane < 4; lane++) {
-        const k = 0.76 + lane * 0.08;
-        g.strokeStyle = "rgba(255,255,255,.12)";
-        g.lineWidth = unit * 0.5;
-        g.beginPath();
-        g.ellipse(cx, cy, rx * k, ry * k, 0, 0, Math.PI * 2);
-        g.stroke();
-      }
-
-      // 起／終點線
-      g.strokeStyle = "#FFFFFF";
-      g.lineWidth = unit * 0.7;
-      g.beginPath();
-      g.moveTo(cx, cy - ry * 1.08);
-      g.lineTo(cx, cy - ry * 0.7);
-      g.stroke();
+      g.textBaseline = "middle";
 
       TEAM_IDS.forEach((id, i) => {
-        const done = (total[id] ?? 0) / perLap; // 跑了幾圈
-        const lane = 0.76 + i * 0.08;
-        const ang = -Math.PI / 2 + (done % 1) * Math.PI * 2;
-        const px = cx + Math.cos(ang) * rx * lane;
-        const py = cy + Math.sin(ang) * ry * lane;
+        const y = top + laneH * i + laneH / 2;
+        const steps = total[id] ?? 0;
+        const done = Math.min(1, steps / goalSteps);
+        const px = startX + (endX - startX) * done;
 
+        // 跑道
+        g.strokeStyle = "rgba(255,255,255,.10)";
+        g.lineWidth = laneH * 0.8;
+        g.beginPath();
+        g.moveTo(startX, y);
+        g.lineTo(endX, y);
+        g.stroke();
+
+        // 已經跑過的那一段染成隊色，遠遠看就是一條進度條
+        g.strokeStyle = TEAMS[id].color;
+        g.globalAlpha = 0.3;
+        g.lineWidth = laneH * 0.8;
+        g.beginPath();
+        g.moveTo(startX, y);
+        g.lineTo(Math.max(startX + 0.1, px), y);
+        g.stroke();
+        g.globalAlpha = 1;
+
+        /* 隊名與步數都放在起點線左邊。
+           步數不能貼著起點線 —— 還沒起跑時角色就停在那裡，
+           數字會整個被角色蓋掉（第一版就是這樣，畫面上看不到 0）。 */
+        g.textAlign = "right";
+        g.fillStyle = TEAMS[id].color;
+        g.font = `900 ${Math.round(unit * 3)}px system-ui, "Noto Sans TC", sans-serif`;
+        g.fillText(TEAMS[id].name, startX - unit * 12, y);
+        g.fillStyle = "#FFFFFF";
+        g.font = `900 ${Math.round(unit * 2.8)}px system-ui, "Noto Sans TC", sans-serif`;
+        // 就是手機上那個數字的隊伍加總，沒有換算
+        g.fillText(`${steps}`, startX - unit * 5, y);
+
+        // 角色
         g.fillStyle = TEAMS[id].color;
         g.beginPath();
-        g.arc(px, py, unit * 3, 0, Math.PI * 2);
+        g.arc(px, y, unit * 3, 0, Math.PI * 2);
         g.fill();
         g.strokeStyle = "rgba(255,255,255,.7)";
         g.lineWidth = unit * 0.4;
         g.stroke();
 
-        // 隊名寫在角色旁邊，一眼看得出誰是誰。
-        // 用 ink 不是白色 —— 風象的角色是白的，白字寫上去整個看不見。
+        // 用 ink 不是白色 —— 風象的角色是白的，白字寫上去整個看不見
         g.fillStyle = TEAMS[id].ink;
         g.textAlign = "center";
-        g.textBaseline = "middle";
         g.font = `900 ${Math.round(unit * 2)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillText(TEAMS[id].name[0] ?? "", px, py);
+        g.fillText(TEAMS[id].name[0] ?? "", px, y);
       });
 
-      // 中間：每隊進度。
-      //
-      // 刻意不寫人數。那是主持人要調參數時才需要的數字（主控台看得到），
-      // 投在大螢幕上只會讓人少的那一隊還沒開始就先洩氣。
-      g.textAlign = "left";
-      g.textBaseline = "middle";
-      TEAM_IDS.forEach((id, i) => {
-        const y = cy - unit * 9 + i * unit * 6;
-        const done = (total[id] ?? 0) / perLap;
-        g.fillStyle = TEAMS[id].color;
-        g.font = `900 ${Math.round(unit * 3)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillText(TEAMS[id].name, cx - unit * 14, y);
-        g.fillStyle = "#FFFFFF";
-        g.font = `900 ${Math.round(unit * 2.8)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillText(`${done.toFixed(2)} / ${LAPS} 圈`, cx - unit * 4, y);
-      });
+      // 起點線與終點線
+      g.strokeStyle = "rgba(255,255,255,.35)";
+      g.lineWidth = unit * 0.5;
+      g.beginPath();
+      g.moveTo(startX, top);
+      g.lineTo(startX, bottom);
+      g.stroke();
 
+      g.strokeStyle = "#FFFFFF";
+      g.lineWidth = unit * 0.8;
+      g.beginPath();
+      g.moveTo(endX, top);
+      g.lineTo(endX, bottom);
+      g.stroke();
+      // 終點兩個字放在線的下面。放上面會被右上角的 QR 蓋掉。
       g.textAlign = "center";
+      g.fillStyle = "#FFFFFF";
+      g.font = `900 ${Math.round(unit * 2.4)}px system-ui, "Noto Sans TC", sans-serif`;
+      g.fillText("終點", endX, bottom + unit * 3);
+
       g.fillStyle = "rgba(255,255,255,.75)";
       g.font = `700 ${Math.round(unit * 2.2)}px system-ui, "Noto Sans TC", sans-serif`;
-      g.fillText(`一圈 ${perLap} 下`, cx, cy + unit * 14);
+      g.fillText(`全程 ${goalSteps} 步　一搖一步`, w / 2, bottom + unit * 3);
 
       if (!running && podium.length === 0) {
         g.fillStyle = "#FFFFFF";
         g.font = `900 ${Math.round(unit * 4)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillText("準備中", cx, cy + unit * 20);
+        g.fillText("準備中", w / 2, bottom + unit * 10);
       }
 
       if (podium.length > 0) {
@@ -411,9 +440,9 @@ export function createShakeRunGame(): Game {
       void now;
     },
 
-    /** 主控台可以調一圈要幾下。 */
+    /** 主控台可以調全程要幾步。 */
     setting(key, value) {
-      if (key === "perLap") perLap = Math.max(100, Math.round(value));
+      if (key === "runSteps") goalSteps = Math.max(100, Math.round(value));
     },
 
     running: () => running,
@@ -451,8 +480,14 @@ export function createShakeRunGame(): Game {
    而且「拔蘿蔔」的體感本來就是往上拔，不是左右晃。
    ============================================================ */
 const CARROT_MS = 60_000;
-/** 拉幾下拔起一根。拉比搖慢得多，所以這個數字要小。 */
-const PER_CARROT = 2;
+/**
+ * 拉幾下拔起一根。1 = 拉一下就一根。
+ *
+ * 以前是 2，但那會讓手機和投影幕講不同的話：玩家拉了 6 下，
+ * 自己畫面上看到 6，投影幕上卻只多 3 根 —— 同一件事兩個數字。
+ * 一拉一根之後兩邊都是同一個數，不用換算也不用解釋。
+ */
+const PER_CARROT = 1;
 
 interface FlyingCarrot {
   x: number;

@@ -70,6 +70,16 @@ export interface Room {
 
   /** stage 用。已節流（見 RATES），可以放心每幀呼叫。 */
   publishState(patch: Partial<RoomState>): void;
+  /**
+   * stage 用。換關卡時把上一關留下的欄位清掉。
+   *
+   * publishState 是「疊上去」的：關卡只送自己在意的欄位，沒提到的
+   * 就沿用舊值。這在同一關裡是對的（省流量），跨關卡就會變成埋伏 ——
+   * 拔蘿蔔送過 gesture:"lift"，換到熱血拔河如果沒特別覆蓋，
+   * 手機就會一直叫大家「把手機往上拉」。targetColor、place、seed
+   * 這些也一樣。與其要求每一關記得列出所有欄位，不如換關卡就清乾淨。
+   */
+  clearGameState(): void;
   /** 立刻送出，不等節流。換關卡這種一次性的事件用。 */
   publishStateNow(patch: Partial<RoomState>): Promise<void>;
 
@@ -264,6 +274,11 @@ export async function openRoom(role: Role, opts: OpenOptions = {}): Promise<Room
       if (!isHost) return;
       const next = merge(patch);
       if (next) stateOut.push(next);
+    },
+
+    clearGameState() {
+      // teamCounts 是跨關卡的（手機的選隊畫面一直要看），其他全部丟掉
+      current = { ...emptyState(), teamCounts: current.teamCounts, seq: current.seq };
     },
 
     async publishStateNow(patch) {

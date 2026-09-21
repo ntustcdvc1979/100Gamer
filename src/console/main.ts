@@ -314,13 +314,13 @@ async function connect(token?: string, insecure = false): Promise<void> {
     cmd({ k: "resetScores" });
   });
 
-  /* ---- 熱血賽跑：一圈要幾下 ---- */
-  $("btnPerLap").addEventListener("click", () => {
-    const v = Number($<HTMLInputElement>("perLap").value);
+  /* ---- 熱血賽跑：全程幾步 ---- */
+  $("btnRunSteps").addEventListener("click", () => {
+    const v = Number($<HTMLInputElement>("runSteps").value);
     if (!Number.isFinite(v) || v < 100) return;
-    if (!cmd({ k: "setting", key: "perLap", value: v })) return;
-    $("btnPerLap").textContent = "已套用";
-    setTimeout(() => ($("btnPerLap").textContent = "套用"), 1200);
+    if (!cmd({ k: "setting", key: "runSteps", value: v })) return;
+    $("btnRunSteps").textContent = "已套用";
+    setTimeout(() => ($("btnRunSteps").textContent = "套用"), 1200);
   });
 
   /* ---- 地理達人題庫 ---- */

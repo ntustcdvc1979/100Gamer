@@ -97,6 +97,8 @@
 .swatch.big { width: 9rem; height: 9rem; }
 
 .bigNum { font-size: 3.4rem; font-weight: 900; line-height: 1; }
+/* 單位跟著數字走，但要小一點，不然「3根」看起來像 34 */
+.bigNum .unit { font-size: .38em; font-weight: 800; margin-left: .15em; opacity: .75; }
 
 .shotBtn { display: block; text-align: center; cursor: pointer; }
 .btn.ghost { background: transparent; border: 2px solid currentColor; color: inherit; }
