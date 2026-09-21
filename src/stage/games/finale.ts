@@ -97,7 +97,10 @@ export function createFinaleGame(): Game {
 
       shown.forEach((r, i) => {
         if (i < firstVisible) return;
-        const y = unit * 18 + i * unit * 6.4;
+        /* 行距壓到 4.6：下面要留出頒獎台的高度。
+           個人榜擠一點沒關係，它是一條一條揭曉的，
+           但頒獎台被切掉的話這一關就沒有結尾了。 */
+        const y = unit * 15 + i * unit * 4.6;
         const barW = w * 0.42 * (r.total / top);
         const fresh = i === firstVisible;
 
@@ -121,19 +124,51 @@ export function createFinaleGame(): Game {
         g.fillText(`${r.total}`, w * 0.42 + barW + unit * 1.5, y);
       });
 
-      // 隊伍總分，放在最下面。個人第一名不一定在冠軍隊，兩個都要有。
-      const teamY = h - unit * 6;
+      /* ---- 隊伍總分：頒獎台 ----
+         用高度而不是左右的長條。四根柱子站在同一條地面上，
+         誰高誰矮不用讀數字就看得出來 —— 這是頒獎那一刻要的效果。
+         而且排法照名次：第二名在左、第一名在中間、第三名在右，
+         就是真的頒獎台的樣子。個人第一名不一定在冠軍隊，所以兩個都要有。 */
+      const ground = h - unit * 4;
       const teamTop = Math.max(1, ...TEAM_IDS.map((id) => teamTotals[id] ?? 0));
+      const ranked = [...TEAM_IDS].sort((a, b) => (teamTotals[b] ?? 0) - (teamTotals[a] ?? 0));
+      // 名次 → 左右位置。0=第一名放中間偏左，1=第二名放最左…
+      const order = [ranked[1], ranked[0], ranked[2], ranked[3]];
+      /** 柱子最高可以多高。上面還要留名字和分數的位置。 */
+      const maxBar = unit * 22;
+
       g.textAlign = "center";
-      TEAM_IDS.forEach((id, i) => {
-        const cx = (w / 4) * i + w / 8;
+      order.forEach((id, i) => {
+        if (!id) return;
         const t = teamTotals[id] ?? 0;
+        const cw = w * 0.13;
+        const cx = w / 2 + (i - 1.5) * (cw + unit * 3);
+        const bx = cx - cw / 2;
+        const bh = Math.max(unit * 2, maxBar * (t / teamTop));
+        const first = id === ranked[0] && t > 0;
+
+        g.fillStyle = TEAMS[id].color;
+        g.fillRect(bx, ground - bh, cw, bh);
+        // 風象是白的，柱子邊要加一圈深色，不然會跟深色背景邊界糊掉
+        if (TEAMS[id].light) {
+          g.strokeStyle = "rgba(0,0,0,.45)";
+          g.lineWidth = Math.max(2, unit * 0.3);
+          g.strokeRect(bx, ground - bh, cw, bh);
+        }
+
+        g.textBaseline = "bottom";
+        g.fillStyle = first ? "#F2A72C" : "#FFFFFF";
+        g.font = `900 ${Math.round(unit * 3.6)}px system-ui, "Noto Sans TC", sans-serif`;
+        g.fillText(String(t), cx, ground - bh - unit * 4.5);
         g.fillStyle = TEAMS[id].color;
         g.font = `900 ${Math.round(unit * 3)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillText(TEAMS[id].name, cx, teamY);
+        g.fillText(TEAMS[id].name, cx, ground - bh - unit * 1);
+
+        // 柱子上寫名次，站上去的感覺才出得來
+        g.textBaseline = "middle";
+        g.fillStyle = TEAMS[id].ink;
         g.font = `900 ${Math.round(unit * 4)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillStyle = t >= teamTop && t > 0 ? "#F2A72C" : "#FFFFFF";
-        g.fillText(String(t), cx, teamY + unit * 5);
+        if (bh > unit * 7) g.fillText(String(ranked.indexOf(id) + 1), cx, ground - bh + unit * 4);
       });
 
       if (revealedCount === 0) {

@@ -13,6 +13,7 @@
    ============================================================ */
 
 import { TEAMS, TEAM_IDS, type TeamId } from "../../shared/teams";
+import { PER_CARROT } from "../../shared/rules";
 import type { Game, GameContext } from "./types";
 
 /**
@@ -67,6 +68,10 @@ function byTeam(
 
    為什麼是兩場 1v1 而不是一場 2v2：每個人都要看得到「我這一隊」的繩子在哪，
    四隊擠一條繩子的話，火象的人根本分不出來是自己拉贏還是水象拉贏。
+
+   動作是「用手指往下滑」不是搖手機：拔河的體感本來就是往自己這邊拉，
+   那是一個有方向的動作。而且滑動不吃感測器權限 ——
+   沒給權限、或手機根本沒有加速度計的人，這一關不會整場動不了。
    ============================================================ */
 
 /** 兩場對戰。[上半場, 下半場]，每一場是 [左, 右]。 */
@@ -91,7 +96,7 @@ export function createShakeTugGame(): Game {
       control: "shake",
       // 一定要寫出來。省略的話會沿用上一關留在 state 裡的值 ——
       // 玩過拔蘿蔔再回來，手機會叫大家「把手機往上拉」。
-      gesture: "shake",
+      gesture: "swipe",
       round: 1,
       accepting: running,
       hint,
@@ -112,7 +117,7 @@ export function createShakeTugGame(): Game {
   return {
     id: "shaketug",
     title: "熱血拔河",
-    brief: `兩場同時比：上半場${TEAMS.A.name} vs ${TEAMS.B.name}，下半場${TEAMS.C.name} vs ${TEAMS.D.name}。搖一下拉一下。T 開始／暫停，R 重來。`,
+    brief: `兩場同時比：上半場${TEAMS.A.name} vs ${TEAMS.B.name}，下半場${TEAMS.C.name} vs ${TEAMS.D.name}。手指往下滑一次拉一下。T 開始／暫停，R 重來。`,
 
     enter: reset,
 
@@ -127,8 +132,10 @@ export function createShakeTugGame(): Game {
         // 人均而不是總和 —— 兩隊人數不一樣的時候，用總和就是人多的直接贏
         const per = (t: TeamId): number =>
           teams[t].size > 0 ? teams[t].sum / teams[t].size : 0;
-        // 0.02 是手感係數：一個人狂搖約 8 下/秒，完全沒人擋的話約 6 秒拉完全場
-        ropes[i] = Math.max(-1, Math.min(1, (ropes[i] ?? 0) + (per(r) - per(l)) * 0.02));
+        /* 0.05 是手感係數。滑比搖慢得多（一個人拚命滑約 3 下/秒，
+           搖可以到 8 下/秒），所以係數要跟著放大，不然一場拔河要拉兩分鐘。
+           完全沒人擋的話約 7 秒拉完全場。 */
+        ropes[i] = Math.max(-1, Math.min(1, (ropes[i] ?? 0) + (per(r) - per(l)) * 0.05));
 
         if (Math.abs(ropes[i] ?? 0) >= 1) {
           winners[i] = (ropes[i] ?? 0) > 0 ? r : l;
@@ -228,7 +235,7 @@ export function createShakeTugGame(): Game {
       running = on;
       // 開始的瞬間重抓基準，不然暫停期間搖的會一次灌進來
       if (on) meter.drain(ctx);
-      announce(ctx, on ? "搖！用力搖！" : "暫停");
+      announce(ctx, on ? "往下滑！用力拉過來！" : "暫停");
       return true;
     },
 
@@ -238,7 +245,7 @@ export function createShakeTugGame(): Game {
         running = !running;
         // 開始的瞬間重抓基準，不然暫停期間搖的會一次灌進來
         if (running) meter.drain(ctx);
-        announce(ctx, running ? "搖！用力搖！" : "暫停");
+        announce(ctx, running ? "往下滑！用力拉過來！" : "暫停");
         return true;
       }
       if (e.key === "r" || e.key === "R") {
@@ -270,15 +277,38 @@ export function createShakeTugGame(): Game {
    要調人或調全程步數都在那裡。
    ============================================================ */
 
+/**
+ * 限時一分鐘。
+ *
+ * 沒有時限的話，人少的那一隊可能要跑三分鐘才到終點，而全場已經看完了 ——
+ * 現場最怕的就是這種「還沒結束但大家已經不看了」的尾巴。
+ * 時間到還沒有人到終點就比步數，總之一分鐘一定收得掉。
+ */
+const RUN_MS = 60_000;
+
 export function createShakeRunGame(): Game {
   const meter = new ShakeMeter();
   let running = false;
   /** 全程幾步。主控台可調。 */
   let goalSteps = 6000;
   let finishedAt = 0;
+  /** 這一局結束的時刻（performance.now()）。 */
+  let endsAt = 0;
+  /** 暫停時還剩多少毫秒。回來從這裡接著跑。 */
+  let left = RUN_MS;
+  /** 時間到了沒 */
+  let timeUp = false;
   /** 每一隊跑了幾步 */
   const total: Record<string, number> = {};
   let podium: TeamId[] = [];
+
+  /** 給名次分數。第一到第四：100 / 70 / 50 / 30。 */
+  function award(ctx: GameContext, id: TeamId): void {
+    const pts = [100, 70, 50, 30][podium.length - 1] ?? 0;
+    for (const a of ctx.field.actors.values()) {
+      if (a.team === id) a.score += pts;
+    }
+  }
 
   function announce(ctx: GameContext, hint: string): void {
     ctx.publish({
@@ -298,11 +328,27 @@ export function createShakeRunGame(): Game {
   function reset(ctx: GameContext): void {
     running = false;
     finishedAt = 0;
+    left = RUN_MS;
+    timeUp = false;
     podium = [];
     for (const id of TEAM_IDS) total[id] = 0;
     meter.reset();
     ctx.field.reset(false);
-    announce(ctx, `團體賽！全隊一起搖，一搖一步，全程 ${goalSteps} 步。等主持人喊開始`);
+    announce(ctx, `團體賽！全隊一起搖，一搖一步，限時一分鐘跑完 ${goalSteps} 步。等主持人喊開始`);
+  }
+
+  /** 時間到：還沒到終點的隊伍按步數多寡排進名次。 */
+  function finishOnTime(ctx: GameContext): void {
+    running = false;
+    timeUp = true;
+    const rest = TEAM_IDS.filter((id) => !podium.includes(id)).sort(
+      (a, b) => (total[b] ?? 0) - (total[a] ?? 0),
+    );
+    for (const id of rest) {
+      podium.push(id);
+      award(ctx, id);
+    }
+    announce(ctx, `時間到！${podium.map((t) => TEAMS[t].name).join(" > ")}`);
   }
 
   return {
@@ -320,17 +366,26 @@ export function createShakeRunGame(): Game {
         if ((total[id] ?? 0) >= goalSteps && !podium.includes(id)) {
           podium.push(id);
           if (podium.length === 1) finishedAt = now;
-          // 名次分數給全隊每一個人
-          const pts = [100, 70, 50, 30][podium.length - 1] ?? 0;
-          for (const a of ctx.field.actors.values()) {
-            if (a.team === id) a.score += pts;
-          }
+          award(ctx, id); // 名次分數給全隊每一個人
         }
       }
-      // 第一名進來之後再跑 15 秒就收，不然要等最後一隊
-      if (finishedAt && now - finishedAt > 15_000) {
+
+      // 四隊都到終點就不用再等了
+      if (podium.length === TEAM_IDS.length) {
         running = false;
         announce(ctx, `比賽結束！${podium.map((t) => TEAMS[t].name).join(" > ")}`);
+        return;
+      }
+
+      // 時間到：剩下的隊伍比步數
+      if (now >= endsAt) {
+        finishOnTime(ctx);
+        return;
+      }
+
+      // 第一名進來之後再跑 15 秒就收，不然要等最後一隊
+      if (finishedAt && now - finishedAt > 15_000) {
+        finishOnTime(ctx);
       }
     },
 
@@ -423,21 +478,26 @@ export function createShakeRunGame(): Game {
       g.font = `700 ${Math.round(unit * 2.2)}px system-ui, "Noto Sans TC", sans-serif`;
       g.fillText(`全程 ${goalSteps} 步　一搖一步`, w / 2, bottom + unit * 3);
 
-      if (!running && podium.length === 0) {
-        g.fillStyle = "#FFFFFF";
-        g.font = `900 ${Math.round(unit * 4)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillText("準備中", w / 2, bottom + unit * 10);
-      }
+      // 倒數秒數放在跑道上方正中間，遠遠就看得到還剩多久
+      const secs = running ? Math.max(0, Math.ceil((endsAt - now) / 1000)) : Math.ceil(left / 1000);
+      g.textAlign = "center";
+      g.fillStyle = secs <= 10 && running ? "#F2A72C" : "#FFFFFF";
+      g.font = `900 ${Math.round(unit * 7)}px system-ui, "Noto Sans TC", sans-serif`;
+      g.fillText(running ? `${secs}` : timeUp ? "時間到" : "準備中", w / 2, top - unit * 7);
 
+      /* 名次排在跑道下面，不要貼左上角。
+         左上角有 HUD 的「N 人已加入」和關卡標題，名次畫上去會疊在一起 ——
+         而名次正是這一關結束時全場唯一要看的東西。 */
       if (podium.length > 0) {
-        g.textAlign = "left";
-        g.font = `900 ${Math.round(unit * 2.8)}px system-ui, "Noto Sans TC", sans-serif`;
+        g.textAlign = "center";
+        g.font = `900 ${Math.round(unit * 3)}px system-ui, "Noto Sans TC", sans-serif`;
+        const gap = w * 0.16;
+        const x0 = w / 2 - (gap * (podium.length - 1)) / 2;
         podium.forEach((id, i) => {
           g.fillStyle = ["#F2A72C", "#CFCFCF", "#C98B45", "#FFFFFF"][i] ?? "#FFF";
-          g.fillText(`${i + 1}. ${TEAMS[id].name}`, unit * 3, unit * (12 + i * 4));
+          g.fillText(`${i + 1}. ${TEAMS[id].name}`, x0 + gap * i, bottom + unit * 9);
         });
       }
-      void now;
     },
 
     /** 主控台可以調全程要幾步。 */
@@ -448,18 +508,24 @@ export function createShakeRunGame(): Game {
     running: () => running,
 
     run(on, ctx) {
+      if (timeUp) return false; // 已經比完了，再開始沒有意義
       if (running === on) return true;
       running = on;
-      if (on) meter.drain(ctx);
+      if (on) {
+        // 暫停過就從剩下的時間接著跑，不要重新給滿一分鐘
+        endsAt = performance.now() + left;
+        meter.drain(ctx);
+      } else {
+        left = Math.max(0, endsAt - performance.now());
+      }
       announce(ctx, on ? "搖！全隊一起衝！" : "暫停");
       return true;
     },
 
     key(e, ctx) {
+      // T 走跟主控台同一條路，才不會有兩套開始／暫停的邏輯要對
       if (e.key === "t" || e.key === "T") {
-        running = !running;
-        if (running) meter.drain(ctx);
-        announce(ctx, running ? "搖！全隊一起衝！" : "暫停");
+        this.run?.(!running, ctx);
         return true;
       }
       if (e.key === "r" || e.key === "R") {
@@ -474,20 +540,17 @@ export function createShakeRunGame(): Game {
 /* ============================================================
    三、拔蘿蔔 —— 用拉的，不是用搖的
 
-   手機平放，時間到往上一拉就拔起一根。拔到的蘿蔔會從地裡飛出去。
+   手機平放，往上拉 10 下拔起一根。這 10 下之間蘿蔔會從土裡慢慢冒出來
+   （那個進度在手機上看得到），拔滿了就從地裡飛出去，然後換下一根。
 
    為什麼改成拉：搖晃跟前面兩關是同一個動作，連三關都在甩手很膩；
    而且「拔蘿蔔」的體感本來就是往上拔，不是左右晃。
+
+   為什麼一根要 10 下而不是 1 下：一拉一根的話，一分鐘會拔出好幾百根，
+   數字大到沒有感覺，而且「拔」這個動作變成純計數。要拉 10 下才起來，
+   每一根都有一個從卡住到鬆動到拔出來的過程。
    ============================================================ */
 const CARROT_MS = 60_000;
-/**
- * 拉幾下拔起一根。1 = 拉一下就一根。
- *
- * 以前是 2，但那會讓手機和投影幕講不同的話：玩家拉了 6 下，
- * 自己畫面上看到 6，投影幕上卻只多 3 根 —— 同一件事兩個數字。
- * 一拉一根之後兩邊都是同一個數，不用換算也不用解釋。
- */
-const PER_CARROT = 1;
 
 interface FlyingCarrot {
   x: number;
@@ -510,6 +573,19 @@ export function createShakeCarrotGame(): Game {
   const carrots: Record<string, number> = {};
   /** 飛出去的蘿蔔。純視覺，不影響計分。 */
   let flying: FlyingCarrot[] = [];
+
+  /** 這一隊離下一輪蘿蔔還有多遠，0..1。純視覺。 */
+  function progressOf(ctx: GameContext, team: TeamId): number {
+    let sum = 0;
+    let size = 0;
+    for (const [uid, a] of ctx.field.actors) {
+      if (a.team !== team) continue;
+      size++;
+      sum += carry.get(uid) ?? 0;
+    }
+    if (size === 0) return 0;
+    return Math.min(1, sum / (size * PER_CARROT));
+  }
 
   function announce(ctx: GameContext, hint: string): void {
     const teams: Record<string, { score: number }> = {};
@@ -535,7 +611,7 @@ export function createShakeCarrotGame(): Game {
     for (const id of TEAM_IDS) carrots[id] = 0;
     meter.reset();
     ctx.field.reset(false);
-    announce(ctx, "一分鐘，把手機往上拉就拔一根。哪一隊拔最多？");
+    announce(ctx, "一分鐘，把手機往上拉，拉 10 下拔起一根。哪一隊拔最多？");
   }
 
   /** 從某一隊的田裡噴一根蘿蔔出來。 */
@@ -556,7 +632,7 @@ export function createShakeCarrotGame(): Game {
   return {
     id: "shakecarrot",
     title: "拔蘿蔔",
-    brief: "分組對抗。一分鐘內把手機往上拉就拔一根，哪一隊拔最多。",
+    brief: "分組對抗。一分鐘內把手機往上拉，拉 10 下一根，哪一隊拔最多。",
 
     enter: reset,
 
@@ -631,11 +707,20 @@ export function createShakeCarrotGame(): Game {
         g.font = `900 ${Math.round(unit * 7)}px system-ui, "Noto Sans TC", sans-serif`;
         g.fillText(String(n), cx, h * 0.96);
 
-        // 地裡還沒拔的蘿蔔葉子
-        g.font = `${Math.round(unit * 3)}px system-ui, sans-serif`;
-        for (let k = 0; k < 6; k++) {
-          g.fillText("🌱", cx - unit * 7 + k * unit * 2.8, h * 0.8);
-        }
+        /* 正在拔的那一根：從土裡冒出來的高度 = 這一隊的平均進度。
+           用平均而不是總和 —— 總和除以 10 取餘數的話，三十個人一起拉
+           會讓它每秒轉好幾圈，看起來只是雜訊。平均的意思是
+           「這一隊離下一輪蘿蔔還有多遠」，動得慢但是看得懂。 */
+        const soil = h * 0.78;
+        const rise = progressOf(ctx, id);
+        g.save();
+        // 只畫土面以上的部分，蘿蔔才像是從土裡長出來的
+        g.beginPath();
+        g.rect(0, 0, w, soil);
+        g.clip();
+        g.font = `${Math.round(unit * 6)}px system-ui, sans-serif`;
+        g.fillText("🥕", cx, soil + unit * 3.5 - rise * unit * 6.5);
+        g.restore();
       });
 
       // 飛出去的蘿蔔

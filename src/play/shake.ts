@@ -104,3 +104,90 @@ export function createShakeCounter(): ShakeCounter {
     },
   };
 }
+
+/* ============================================================
+   往下滑計數（熱血拔河用）
+
+   為什麼拔河改成滑不是搖：拔河的體感是「往自己這邊拉」，那是一個
+   有方向的動作；搖手機沒有方向，四隊一起亂甩看起來都一樣。
+   而且滑動不吃感測器權限 —— 沒給權限、或手機根本沒有加速度計的人，
+   在這一關不會整場動不了。
+
+   判定：手指往下移動累積超過一段距離就算一下，然後把錨點移到目前位置，
+   所以一路往下滑會連續計數，往上回拉不會倒扣（只是把錨點帶上去）。
+   ============================================================ */
+
+/** 往下滑多少像素算一下。用視窗高度的比例，大小螢幕手感才一致。 */
+const SWIPE_FRACTION = 0.12;
+
+export interface SwipeCounter {
+  readonly count: number;
+  /** 這一關要不要吃觸控。不是這一關的時候要關掉，不然會亂數。 */
+  setActive(on: boolean): void;
+  dispose(): void;
+}
+
+export function createSwipeCounter(surface: HTMLElement): SwipeCounter {
+  let count = 0;
+  let active = false;
+  /** 目前這根手指的錨點 y。null = 沒有手指按著。 */
+  let anchor: number | null = null;
+  let pointer: number | null = null;
+
+  const step = (): number => Math.max(40, window.innerHeight * SWIPE_FRACTION);
+
+  function onDown(e: PointerEvent): void {
+    if (!active || pointer !== null) return;
+    pointer = e.pointerId;
+    anchor = e.clientY;
+    try {
+      surface.setPointerCapture(e.pointerId);
+    } catch {
+      /* 抓不到就算了 */
+    }
+  }
+
+  function onMove(e: PointerEvent): void {
+    if (!active || e.pointerId !== pointer || anchor === null) return;
+    const dy = e.clientY - anchor;
+    if (dy >= step()) {
+      // 一次滑很長要算很多下，不然快速長滑會吃虧
+      const n = Math.floor(dy / step());
+      count += n;
+      anchor += n * step();
+    } else if (dy < 0) {
+      // 往上回拉只是把錨點帶上去，不倒扣 —— 來回滑本來就是這個動作的一部分
+      anchor = e.clientY;
+    }
+  }
+
+  function onUp(e: PointerEvent): void {
+    if (e.pointerId !== pointer) return;
+    pointer = null;
+    anchor = null;
+  }
+
+  surface.addEventListener("pointerdown", onDown);
+  surface.addEventListener("pointermove", onMove);
+  surface.addEventListener("pointerup", onUp);
+  surface.addEventListener("pointercancel", onUp);
+
+  return {
+    get count() {
+      return count;
+    },
+    setActive(on) {
+      active = on;
+      if (!on) {
+        pointer = null;
+        anchor = null;
+      }
+    },
+    dispose() {
+      surface.removeEventListener("pointerdown", onDown);
+      surface.removeEventListener("pointermove", onMove);
+      surface.removeEventListener("pointerup", onUp);
+      surface.removeEventListener("pointercancel", onUp);
+    },
+  };
+}

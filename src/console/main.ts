@@ -43,7 +43,7 @@ const GAMES = [
   { id: "shakerun", title: "熱血賽跑", note: "團體賽・搖手機", pause: true },
   { id: "photocolor", title: "拍照找顏色", note: "個人賽・60 秒", pause: false },
   { id: "shakecarrot", title: "拔蘿蔔", note: "分組對抗・拉手機・1 分鐘", pause: true },
-  { id: "heatmaster", title: "火候達人", note: "個人賽・六道菜", pause: true },
+  { id: "heatmaster", title: "火候達人", note: "個人賽・八道菜", pause: true },
   { id: "finale", title: "總排行榜", note: "頒獎・一個一個揭曉", pause: true },
 ];
 
@@ -352,7 +352,7 @@ async function connect(token?: string, insecure = false): Promise<void> {
               return `<tr>
                 <td class="rank">${r.total > 0 ? i + 1 : "—"}</td>
                 <td class="name">${escapeHtml(r.name)}</td>
-                <td><span class="chip" style="background:${t?.color ?? "#888"}">${t?.name ?? r.team}</span></td>
+                <td><span class="chip${t?.light ? " light" : ""}" style="background:${t?.color ?? "#888"};color:${t?.ink ?? "#fff"}">${t?.name ?? r.team}</span></td>
                 <td class="num">${r.round || ""}</td>
                 <td class="num total">${r.total}</td>
                 <td><button class="kick" data-uid="${r.uid}" data-name="${escapeHtml(r.name)}" title="把這個人請出去">✕</button></td>

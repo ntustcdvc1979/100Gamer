@@ -16,11 +16,11 @@
    ============================================================ */
 
 import { GEO_QUESTIONS } from "../../config/geo";
-import { distanceKm, geoScore, outlinePath, project, unproject } from "../../shared/taiwan";
-import { TEAMS } from "../../shared/teams";
+import { COUNTY_LABELS, countyPaths, distanceKm, geoScore, outlinePath, project, unproject } from "../../shared/taiwan";
+import { TEAMS, TEAM_IDS } from "../../shared/teams";
+import { GEO_ROUND_MS as ROUND_MS } from "../../shared/rules";
 import type { Game, GameContext } from "./types";
 
-const ROUND_MS = 30_000;
 const SHOW_TOP = 6;
 
 interface Guess {
@@ -64,9 +64,29 @@ export function createGeoGame(): Game {
       accepting: running,
       revealed,
       place: q().name + (q().hint ? `（${q().hint}）` : ""),
+      /* 公布之後才把答案的座標送出去。
+         沒公布前送等於直接把答案給玩家（打開 devtools 就看得到）；
+         公布之後手機才畫得出正確位置、也才算得出「我差幾公里」——
+         而那個數字必須是他自己的，不是全場最近的那個人的。
+         兩個數字而已，一題只送一次，對下行沒有影響。 */
+      answer: revealed ? [q().lon, q().lat] : undefined,
+      /* 各隊到目前為止的總分。這一關的分數是個人的，但主持人和玩家
+         都會想知道自己這一隊領先沒有。 */
+      teams: teamScores(ctx),
       hint,
       options: [],
     });
+  }
+
+  /** 各隊在這一關的累計分數。 */
+  function teamScores(ctx: GameContext): Record<string, { score: number }> {
+    const out: Record<string, { score: number }> = {};
+    for (const id of TEAM_IDS) out[id] = { score: 0 };
+    for (const a of ctx.field.actors.values()) {
+      const t = out[a.team];
+      if (t) t.score += a.score;
+    }
+    return out;
   }
 
   function load(ctx: GameContext): void {
@@ -198,6 +218,25 @@ export function createGeoGame(): Game {
         infoY,
       );
 
+      /* ---- 左欄下方：各隊目前分數 ----
+         這一關是個人賽，但大家關心的還是自己那一隊有沒有領先。
+         放左下角，跟題目同一欄，不會壓到地圖也不會被 QR 蓋到。 */
+      {
+        const scores = teamScores(ctx);
+        const baseY = ctx.surface.h - unit * 11;
+        g.textAlign = "left";
+        g.textBaseline = "middle";
+        g.font = `900 ${Math.round(unit * 2.6)}px system-ui, "Noto Sans TC", sans-serif`;
+        TEAM_IDS.forEach((id, i) => {
+          const y = baseY + Math.floor(i / 2) * unit * 4;
+          const x = pad + (i % 2) * (colW / 2);
+          g.fillStyle = TEAMS[id].color;
+          g.fillText(TEAMS[id].name, x, y);
+          g.fillStyle = "#FFFFFF";
+          g.fillText(`${scores[id]?.score ?? 0}`, x + unit * 9, y);
+        });
+      }
+
       /* ---- 右欄：名次。從 QR 下面開始，不要被蓋到。 ---- */
       if (revealed && ranked.length > 0) {
         const rx = box.x + box.w + pad;
@@ -226,6 +265,26 @@ export function createGeoGame(): Game {
       g.strokeStyle = "rgba(255,255,255,.45)";
       g.lineWidth = Math.max(1.5, unit * 0.22);
       g.stroke(path);
+
+      /* 縣市界。畫在島的裡面（用海岸線裁切），不然分界線會戳到海裡。
+         它是示意不是行政區圖 —— 目的是讓人一眼抓到「大概在哪一區」。 */
+      g.save();
+      g.clip(path);
+      g.strokeStyle = "rgba(255,255,255,.22)";
+      g.lineWidth = Math.max(1, unit * 0.14);
+      for (const d of countyPaths(box.w, box.h)) g.stroke(new Path2D(d));
+      g.restore();
+
+      g.save();
+      g.textAlign = "center";
+      g.textBaseline = "middle";
+      g.fillStyle = "rgba(255,255,255,.35)";
+      g.font = `700 ${Math.round(unit * 1.9)}px system-ui, "Noto Sans TC", sans-serif`;
+      for (const c of COUNTY_LABELS) {
+        const p = project(c);
+        g.fillText(c.name, p.x * box.w, p.y * box.h);
+      }
+      g.restore();
 
       // 大家點的位置。**只在公布之後畫** ——
       // 收件中就畫出來的話，後面的人只要看投影幕上哪裡最密就好了，

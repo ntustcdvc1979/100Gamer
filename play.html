@@ -82,14 +82,42 @@
     <!-- 搖動關卡沒有動作鈕可以代替（按鈕比搖手機快太多，等於開一條作弊路）。
          所以這裡留一顆重新要權限的按鈕當最後手段，感測器正常時會自己收起來。 -->
     <button class="btn ghost" id="armBtn2" hidden>重新開啟感測器</button>
-    <p class="fine">這一關一定要用搖的，沒有按鈕可以代替。<br>遊玩中請將螢幕保持恆亮。</p>
+    <p class="fine" id="shakeFine">這一關一定要用動的，沒有按鈕可以代替。遊玩中請將螢幕保持恆亮。</p>
   </div>
 
   <!-- 地理達人 -->
   <div class="pane" id="tapPane" hidden>
-    <p class="paneLabel" id="tapPlace">—</p>
+    <p class="paneLabel">
+      <span id="tapPlace">—</span>
+      <!-- 只有這一關在手機上顯示剩餘秒數。其他關卡刻意不顯示：
+           火候達人整關就是要大家自己數秒，賽跑和拔蘿蔔則是投影幕在倒數，
+           低頭看手機上的秒數只會讓人不看台上。地理達人不一樣 ——
+           玩家本來就得一直低頭看地圖，倒數不放在手機上他根本看不到。 -->
+      <span class="tapClock" id="tapClock" hidden>30</span>
+    </p>
     <div class="map" id="map"></div>
     <p class="paneHint" id="tapHint">在地圖上點一下</p>
+  </div>
+
+  <!-- 火候達人：烤箱焗烤（真的開手電筒） -->
+  <div class="pane" id="torchPane" hidden>
+    <p class="paneLabel" id="torchLabel">烤箱焗烤</p>
+    <div class="bigNum" id="torchTarget">—</div>
+    <button class="btn" id="torchBtn" disabled>開烤箱燈！</button>
+    <p class="paneHint" id="torchHint"></p>
+    <p class="fine">會用到相機權限才能點亮閃光燈；不給或手機不支援的話，
+      螢幕會整片變白代替。兩種都算數，分數一樣。</p>
+  </div>
+
+  <!-- 火候達人：端湯 -->
+  <div class="pane" id="soupPane" hidden>
+    <p class="paneLabel" id="soupLabel">端湯上桌</p>
+    <div class="bowl" id="bowl">
+      <div class="bowlSoup" id="bowlSoup"></div>
+    </div>
+    <div class="bigNum"><span id="soupLeft">100</span><span class="unit">%</span></div>
+    <p class="paneHint" id="soupHint">傾斜手機保持平衡</p>
+    <p class="fine" id="soupFine">碗會自己歪，把手機往反方向傾回來。</p>
   </div>
 
   <!-- 文字找不同 -->

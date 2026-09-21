@@ -74,7 +74,17 @@ export interface RoomState {
   control?: "joystick" | "camera" | "motion" | "shake" | "tap" | "find";
 
   /** control 是 motion 時要做哪一種動作。 */
-  gesture?: "flip" | "lift" | "shake";
+  /**
+   * 要做哪一種動作。
+   *
+   *   flip   把手機翻面（火候達人）
+   *   lift   把手機提起來（火候達人、拔蘿蔔）
+   *   shake  用力晃（熱血賽跑）
+   *   swipe  用手指往下滑（熱血拔河）—— 不吃感測器權限
+   *   torch  按鈕開手電筒（火候達人的焗烤）
+   *   tilt   傾斜手機保持平衡（火候達人的端湯）
+   */
+  gesture?: "flip" | "lift" | "shake" | "swipe" | "torch" | "tilt";
 
   /**
    * 各隊現在幾個人。玩家自己選隊，所以要看得到哪一隊人少。
@@ -95,6 +105,15 @@ export interface RoomState {
    * 看不到題目照片（他要看的是地圖）。
    */
   place?: string;
+
+  /**
+   * 地理達人：正確答案的 [經度, 緯度]。**只有公布之後才會有值。**
+   *
+   * 沒公布就送等於把答案直接給玩家（打開 devtools 就看得到）。
+   * 公布之後手機才畫得出正確位置，也才算得出「我自己差幾公里」——
+   * 那個數字必須是他自己的距離，不是全場最近的那個人的。
+   */
+  answer?: [number, number];
 
   /** 這一輪還收不收（拍照／翻面）。時間到之後手機要自己鎖起來。 */
   accepting?: boolean;
@@ -186,7 +205,21 @@ export interface FindAction {
   ms: number;
 }
 
-export type PlayerAction = ColorAction | FlipAction | TapAction | FindAction;
+/**
+ * 火候達人的端湯：時間到還剩多少湯（0..100）。
+ *
+ * 這一道跟其他七道不一樣 —— 比的不是「在第幾秒做動作」而是「撐到最後
+ * 還剩多少」，所以由手機自己跑完整段模擬，結束時回報一個結果就好。
+ * 過程中的傾斜角度不必送上來：那是每秒幾十筆、乘以一百支手機的量，
+ * 而投影幕並不需要看到誰的碗晃成什麼樣。
+ */
+export interface SoupAction {
+  k: "soup";
+  /** 0..100 */
+  left: number;
+}
+
+export type PlayerAction = ColorAction | FlipAction | TapAction | FindAction | SoupAction;
 
 /* ---------- 指令：主控台 → 投影幕 ---------- */
 

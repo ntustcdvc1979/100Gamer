@@ -1,6 +1,12 @@
 .screen {
   position: fixed;
   inset: 0;
+  /* 動態視窗高度。
+     iPhone 的 Safari 會把網址列／工具列疊在「大視窗」上，用 100vh 或
+     inset:0 撐滿的話，畫面最下面那一截會被工具列蓋住 —— 地理達人的
+     地圖底部（也就是屏東、鵝鑾鼻那一段）就是這樣不見的。
+     100dvh 會跟著工具列的出現收起來縮放，舊瀏覽器則退回 inset:0。 */
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   padding: max(1.25rem, env(safe-area-inset-top)) 1.25rem max(1.25rem, env(safe-area-inset-bottom));
@@ -77,6 +83,10 @@
 /* 拍照 / 翻面的操作面板 */
 .pane {
   flex: 1;
+  /* 跟 .map 同一個理由：column flex 的項目預設不可以縮到比內容小。
+     pane 不加這一行的話，裡面的地圖再怎麼設 max-height 也沒用 ——
+     它的百分比是對著一個「已經被內容撐爆」的高度算的。 */
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -159,8 +169,30 @@
 @keyframes wobble { 0%,100%{transform:rotate(-8deg)} 50%{transform:rotate(8deg)} }
 
 /* 地理達人 */
-.map { flex: 1; width: 100%; display: grid; place-items: center; touch-action: manipulation; }
-.map svg { max-height: 100%; }
+.map {
+  flex: 1;
+  width: 100%;
+  /* min-height: 0 是關鍵。
+     column flex 的項目預設 min-height: auto，也就是「不可以縮到比內容小」。
+     台灣地圖的 viewBox 是 100×170，寬度撐滿手機之後算出來的內在高度
+     比螢幕還高，於是整個 pane 被撐爆、地圖下半截掉到畫面外 ——
+     那正是「被工具列遮住」看起來的樣子。加上這一行它才會乖乖縮。 */
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  touch-action: manipulation;
+}
+/* svg 的外框要剛好等於畫出來的島，不能留黑邊 ——
+   點地圖的座標是拿這個外框換算的，留邊的話點下去會整個偏掉。
+   所以用 aspect-ratio 把比例釘死，再用 max-* 夾住兩個方向。 */
+.map svg {
+  display: block;
+  height: 100%;
+  width: auto;
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: 100 / 170;
+}
 .placeImg { max-height: 26vh; border-radius: .6rem; }
 
 /* 文字找不同 */
@@ -172,3 +204,34 @@
   cursor: pointer; padding: 0;
 }
 .cell.picked { background: #fff; color: #333; }
+
+/* 地理達人的倒數。跟地名同一行，不另外佔一列 —— 手機上每一列都是高度。 */
+.tapClock {
+  display: inline-block; margin-left: .5rem; padding: .05rem .5rem;
+  border-radius: 999px; background: rgba(0,0,0,.22);
+  font-size: 1.15rem; font-weight: 900; font-variant-numeric: tabular-nums;
+}
+/* 剩 5 秒開始閃，低頭看地圖的人才會注意到 */
+.tapClock.urgent { background: #C0392B; color: #fff; animation: tick .6s steps(2) infinite; }
+@keyframes tick { 50% { opacity: .45; } }
+
+/* 公布之後：自己的距離與分數 */
+.tapResult { margin: 0; font-size: 1.05rem; font-weight: 800; line-height: 1.5; }
+
+/* 焗烤：開不了閃光燈就整片螢幕變白當燈用 */
+.app.torchOn { background: #FFFFFF !important; color: #111 !important; }
+.app.torchOn .fine, .app.torchOn .paneLabel { opacity: .5; }
+
+/* 端湯。碗是一個半圓，湯面會跟著傾斜 —— 傾斜角度靠 --tilt 傳進來。 */
+.bowl {
+  position: relative; width: 62vw; max-width: 15rem; aspect-ratio: 1 / .62;
+  border: .4rem solid currentColor; border-top: none;
+  border-radius: 0 0 50% 50% / 0 0 100% 100%;
+  overflow: hidden;
+}
+.bowlSoup {
+  position: absolute; left: -30%; right: -30%; bottom: 0;
+  background: #E8A33D;
+  transform-origin: center bottom;
+  transition: height .1s linear;
+}

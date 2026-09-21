@@ -1,12 +1,15 @@
 /* ============================================================
    遊戲五：火候達人（個人賽）
 
-   六道菜，每一道要在指定的秒數做一個動作。誤差越小分數越高。
+   八道菜。前六道要在指定的秒數做一個動作，誤差越小分數越高；
+   第七道按鈕開燈（真的開手電筒），第八道端湯比的是「還剩多少」。
 
-   三種動作：
+   五種動作：
      lift   把手機提起來（煎蛋餅起鍋、薯條起鍋、掀鍋蓋）
      flip   把手機翻面（翻素火腿、炒高麗菜）
      shake  晃手機（撒胡椒粉）
+     torch  按鈕開烤箱燈 —— 會真的把手機的手電筒打開，全場一起亮
+     tilt   傾斜手機端湯，唯一一道不比時間點的
 
    ⚠️ 投影幕上的秒數會在 2 秒內淡掉。
 
@@ -36,21 +39,32 @@ import type { Game, GameContext } from "./types";
 
 interface Dish {
   name: string;
-  /** 幾秒做動作 */
+  /** timing 是「在第幾秒做一次動作」，soup 是「撐幾秒不要把湯灑掉」 */
+  mode: "timing" | "soup";
+  /** timing：第幾秒做動作。soup：要端幾秒。 */
   seconds: number;
-  gesture: "flip" | "lift" | "shake";
+  gesture: "flip" | "lift" | "shake" | "torch" | "tilt";
   /** 投影幕與手機上寫的動作提示 */
   verb: string;
 }
 
-/** 六道菜。要改秒數或順序改這裡就好。 */
+/**
+ * 八道菜。要改秒數或順序改這裡就好。
+ *
+ * 前六道是同一種玩法（自己數秒，在對的時間做一個動作），
+ * 最後兩道刻意換掉手感，免得八題下來變成同一題出八次：
+ *   烤箱焗烤  按鈕開燈，而且是真的把手電筒打開 —— 全場會同時亮起來
+ *   端湯      唯一一道不比時間點的，比的是「撐到最後還剩多少湯」
+ */
 const DISHES: Dish[] = [
-  { name: "煎蛋餅", seconds: 7, gesture: "lift", verb: "把手機提起來（起鍋）" },
-  { name: "炸薯條起鍋", seconds: 6, gesture: "lift", verb: "把手機提起來" },
-  { name: "掀鍋蓋", seconds: 15, gesture: "lift", verb: "把手機提起來" },
-  { name: "翻素火腿", seconds: 10, gesture: "flip", verb: "把手機翻面" },
-  { name: "炒高麗菜", seconds: 12, gesture: "flip", verb: "把手機翻面（翻動）" },
-  { name: "撒胡椒粉", seconds: 5, gesture: "shake", verb: "晃手機" },
+  { name: "煎蛋餅", mode: "timing", seconds: 7, gesture: "lift", verb: "把手機提起來（起鍋）" },
+  { name: "炸薯條起鍋", mode: "timing", seconds: 6, gesture: "lift", verb: "把手機提起來" },
+  { name: "掀鍋蓋", mode: "timing", seconds: 15, gesture: "lift", verb: "把手機提起來" },
+  { name: "翻素火腿", mode: "timing", seconds: 10, gesture: "flip", verb: "把手機翻面" },
+  { name: "炒高麗菜", mode: "timing", seconds: 12, gesture: "flip", verb: "把手機翻面（翻動）" },
+  { name: "撒胡椒粉", mode: "timing", seconds: 5, gesture: "shake", verb: "晃手機" },
+  { name: "烤箱焗烤", mode: "timing", seconds: 8, gesture: "torch", verb: "按鈕開烤箱燈" },
+  { name: "端湯上桌", mode: "soup", seconds: 20, gesture: "tilt", verb: "傾斜手機保持平衡，別把湯灑了" },
 ];
 
 /** 誤差幾秒就掉到 0 分 */
@@ -92,10 +106,24 @@ export function createHeatMasterGame(): Game {
     });
   }
 
+  /** 開始那一刻投影幕上的提示。端湯跟其他七道的講法不一樣。 */
+  function startHint(): string {
+    const d = dish();
+    return d.mode === "soup"
+      ? `${d.name}　開始！撐 ${d.seconds} 秒`
+      : `${d.name}　開始！自己數 ${d.seconds} 秒`;
+  }
+
   function load(ctx: GameContext): void {
     running = false;
     acts.clear();
-    announce(ctx, `第 ${index + 1} 題：${dish().name}，${dish().seconds} 秒${dish().verb}`);
+    const d = dish();
+    announce(
+      ctx,
+      d.mode === "soup"
+        ? `第 ${index + 1} 題：${d.name}，撐 ${d.seconds} 秒，${d.verb}`
+        : `第 ${index + 1} 題：${d.name}，${d.seconds} 秒${d.verb}`,
+    );
   }
 
   return {
@@ -110,19 +138,38 @@ export function createHeatMasterGame(): Game {
     },
 
     step(_dt, now, ctx) {
-      if (running && now - startedAt > dish().seconds * 1000 + GRACE_MS) {
+      if (!running) return;
+      const d = dish();
+      /* 端湯的收尾寬限只要 2 秒：手機是自己跑完整段模擬再回報結果的，
+         時間一到大家幾乎同時送上來，不用像「等人做動作」那樣留 8 秒。 */
+      const grace = d.mode === "soup" ? 2000 : GRACE_MS;
+      if (now - startedAt > d.seconds * 1000 + grace) {
         running = false;
-        announce(ctx, `結束！${acts.size} 個人做了動作`);
+        announce(
+          ctx,
+          d.mode === "soup"
+            ? `結束！${acts.size} 個人端到桌上`
+            : `結束！${acts.size} 個人做了動作`,
+        );
       }
     },
 
     action(uid, a: PlayerAction, ctx) {
-      if (a.k !== "flip" || !running) return;
+      if (!running) return;
       // 一題只能做一次。做過就不理後面的，不然一直搖就刷分了。
       if (acts.has(uid)) return;
       const actor = ctx.field.actors.get(uid);
       if (!actor) return;
 
+      if (a.k === "soup" && dish().mode === "soup") {
+        // 端湯比的是剩多少，直接當分數（0..100）
+        const score = Math.max(0, Math.min(100, Math.round(a.left)));
+        acts.set(uid, { ms: 0, score, by: "motion" });
+        actor.score += score;
+        return;
+      }
+
+      if (a.k !== "flip" || dish().mode !== "timing") return;
       const score = scoreFor(a.ms);
       acts.set(uid, { ms: a.ms, score, by: a.by });
       actor.score += score;
@@ -193,12 +240,28 @@ export function createHeatMasterGame(): Game {
 
       g.font = `700 ${Math.round(unit * 3)}px system-ui, "Noto Sans TC", sans-serif`;
       g.fillText(
-        running
-          ? `${d.seconds} 秒時${d.verb}　${acts.size}人已完成`
-          : `　${d.seconds} 秒時${d.verb}`,
+        d.mode === "soup"
+          ? running
+            ? `${d.verb}　${acts.size}人已端到`
+            : `撐 ${d.seconds} 秒，${d.verb}`
+          : running
+            ? `${d.seconds} 秒時${d.verb}　${acts.size}人已完成`
+            : `　${d.seconds} 秒時${d.verb}`,
         cx,
         cy + rr + unit * 7,
       );
+
+      /* 端湯：投影幕上寫全場平均還剩多少湯。
+         個別玩家的碗不畫 —— 一百個晃來晃去的碗只會讓人看不到重點，
+         而且那些資料留在各自的手機上，本來就不該送上來（規則一）。 */
+      if (d.mode === "soup" && acts.size > 0) {
+        let sum = 0;
+        for (const a of acts.values()) sum += a.score;
+        g.font = `900 ${Math.round(unit * 3.4)}px system-ui, "Noto Sans TC", sans-serif`;
+        g.fillStyle = "#F2A72C";
+        g.fillText(`全場平均還剩 ${Math.round(sum / acts.size)}% 的湯`, cx, cy + rr + unit * 11);
+        g.fillStyle = "#FFFFFF";
+      }
 
       // 這一關刻意不畫玩家的圓圈：一百個點飄在鍋子旁邊只會擋住秒數。
 
@@ -246,7 +309,7 @@ export function createHeatMasterGame(): Game {
         startedAt = performance.now();
         acts.clear();
       }
-      announce(ctx, on ? `${dish().name}　開始！自己數 ${dish().seconds} 秒` : "暫停");
+      announce(ctx, on ? startHint() : "暫停");
       return true;
     },
 
@@ -257,7 +320,7 @@ export function createHeatMasterGame(): Game {
           startedAt = performance.now();
           acts.clear();
         }
-        announce(ctx, running ? `${dish().name}　開始！自己數 ${dish().seconds} 秒` : "暫停");
+        announce(ctx, running ? startHint() : "暫停");
         return true;
       }
       if (e.key === "ArrowRight" && index < DISHES.length - 1) {
