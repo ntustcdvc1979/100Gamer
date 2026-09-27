@@ -1,30 +1,26 @@
 /* ============================================================
    遊戲清單與流程順序
 
-   這個順序是刻意的，一場派對的起承轉合。
-   節奏在「坐著」與「站起來」之間交替，不要連續兩關都在狂搖：
+   這一場（四象星座 × 皮克敏）實際要玩的是前面這一段，照順序按 → 就對了：
 
-     1  聚沙成塔    全體協作。學會用搖桿，看到大家都在線上
-     2  四方拔河    分組對抗。搖桿，吵
-     3  選邊站      個人賽。全場大遷徙，喘一口氣
-     4  熱血拔河    分組對抗。第一次狂搖，最吵的一關
-     5  地理達人    個人賽。坐下來動腦
-     6  文字找不同  個人賽。安靜但緊張
-     7  熱血賽跑    團體賽。再站起來
-     8  拍照找顏色  個人賽。離開座位去找東西，換一個身體節奏
-     9  拔蘿蔔      分組對抗。一分鐘，全場最後一次爆發
-    10  火候達人    個人賽。六道菜
-    11  總排行榜    頒獎。從第十名往上一個一個揭曉，可以停著讓大家拍照
+     1  等待大廳    開場。掃 QR 選隊，加入的人變成皮克敏在草地上走
+     2  地理達人    個人賽。坐下來動腦
+     3  拔蘿蔔      分組對抗。一分鐘，全場第一次爆發
+     4  熱血賽跑    團體賽。再站起來
+     5  火候達人    個人賽。八道菜，收在端湯
+     6  總排行榜    頒獎。從第十名往上一個一個揭曉，可以停著讓大家拍照
 
-   不用全部跑完 —— 主控台可以跳關。十關全開大約 50 分鐘。
+   後面那幾關這次沒排，但留著 —— 主控台可以直接點過去，以後別的場次用得到。
+   它們擺在頒獎之後，是為了讓主持人一路按 → 的時候不會誤闖進去。
+   （這幾關還是舊的深色畫面，沒有換成卡通主題。）
 
-   要加新遊戲就實作 types.ts 的 Game 介面，加進下面的陣列。
+   要加新遊戲就實作 types.ts 的 Game 介面，加進下面的陣列，
+   而且 console/main.ts 的 GAMES 要照同一個順序補上 —— 兩邊是用索引對的。
+
    加之前先想一下延遲：端到端約 60ms，不要做需要精準時序判定的
    （誰先按、節奏、瞄準）—— 那些在百人場會變成純運氣。
-
-   火候達人和文字找不同看起來像在測時序，其實不是：
-   前者比的是「玩家自己抓的 10 秒」跟真正的 10 秒差多少，
-   後者是幾秒級的反應，60ms 對它們都不影響。
+   火候達人看起來像在測時序，其實不是：它比的是「玩家自己抓的 10 秒」
+   跟真正的 10 秒差多少，60ms 不影響。
    ============================================================ */
 
 import { createFindCharGame } from "./findchar";
@@ -32,6 +28,7 @@ import { createFinaleGame } from "./finale";
 import { createGatherGame } from "./gather";
 import { createGeoGame } from "./geo";
 import { createHeatMasterGame } from "./heatmaster";
+import { createLobbyGame } from "./lobby";
 import { createPhotoColorGame } from "./photocolor";
 import { createPickSideGame } from "./pickside";
 import { createShakeCarrotGame, createShakeRunGame, createShakeTugGame } from "./shake";
@@ -40,17 +37,20 @@ import type { Game } from "./types";
 
 export function createGames(): Game[] {
   return [
+    // ---- 這一場的流程 ----
+    createLobbyGame(),
+    createGeoGame(),
+    createShakeCarrotGame(),
+    createShakeRunGame(),
+    createHeatMasterGame(),
+    createFinaleGame(),
+    // ---- 這次沒排的 ----
     createGatherGame(),
     createTugOfWarGame(),
     createPickSideGame(),
     createShakeTugGame(),
-    createGeoGame(),
     createFindCharGame(),
-    createShakeRunGame(),
     createPhotoColorGame(),
-    createShakeCarrotGame(),
-    createHeatMasterGame(),
-    createFinaleGame(),
   ];
 }
 

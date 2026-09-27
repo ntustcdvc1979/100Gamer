@@ -18,7 +18,7 @@
 import "../shared/base.css";
 import "./console.css";
 import { AccessDenied, openRoom, type Room } from "../net/room";
-import { TEAMS } from "../shared/teams";
+import { DISPLAY_ORDER, TEAMS } from "../shared/teams";
 import type { ScoreRow } from "../net/schema";
 import { resolveWsUrl } from "../net/wsurl";
 
@@ -33,18 +33,21 @@ const $ = <T extends HTMLElement>(id: string): T =>
  * 這裡標起來是為了讓按鈕先講清楚，而不是按下去沒反應。
  */
 const GAMES = [
-  // 聚沙成塔沒有「開始」也沒有「暫停」：一連上就能動，它是暖身關
-  { id: "gather", title: "聚沙成塔", note: "全體協作・搖桿", pause: false, start: false },
-  { id: "tugofwar", title: "四方拔河", note: "分組對抗・搖桿", pause: true },
-  { id: "pickside", title: "選邊站", note: "個人賽・搖桿", pause: false },
-  { id: "shaketug", title: "熱血拔河", note: "紅vs黃、綠vs藍・搖手機", pause: true },
+  // ---- 這一場的流程，照順序按 → 就對了 ----
+  // 大廳沒有「開始」也沒有「暫停」：它是開場等人的畫面
+  { id: "lobby", title: "等待大廳", note: "開場・掃 QR 選皮克敏", pause: false, start: false },
   { id: "geo", title: "地理達人", note: "個人賽・點地圖・30 秒", pause: false },
-  { id: "findchar", title: "文字找不同", note: "個人賽・30 秒", pause: false },
-  { id: "shakerun", title: "熱血賽跑", note: "團體賽・搖手機", pause: true },
-  { id: "photocolor", title: "拍照找顏色", note: "個人賽・60 秒", pause: false },
   { id: "shakecarrot", title: "拔蘿蔔", note: "分組對抗・拉手機・1 分鐘", pause: true },
+  { id: "shakerun", title: "熱血賽跑", note: "團體賽・搖手機・1 分鐘", pause: true },
   { id: "heatmaster", title: "火候達人", note: "個人賽・八道菜", pause: true },
   { id: "finale", title: "總排行榜", note: "頒獎・一個一個揭曉", pause: true },
+  // ---- 這次沒排的（還是舊的深色畫面）----
+  { id: "gather", title: "聚沙成塔", note: "全體協作・搖桿", pause: false, start: false, extra: true },
+  { id: "tugofwar", title: "四方拔河", note: "分組對抗・搖桿", pause: true, extra: true },
+  { id: "pickside", title: "選邊站", note: "個人賽・搖桿", pause: false, extra: true },
+  { id: "shaketug", title: "熱血拔河", note: "兩場同時・手指往下滑", pause: true, extra: true },
+  { id: "findchar", title: "文字找不同", note: "個人賽・30 秒", pause: false, extra: true },
+  { id: "photocolor", title: "拍照找顏色", note: "個人賽・60 秒", pause: false, extra: true },
 ];
 
 interface GoogleCredentialResponse {
@@ -206,14 +209,17 @@ async function connect(token?: string, insecure = false): Promise<void> {
   const list = $("games");
   list.innerHTML = GAMES.map(
     (g, i) =>
-      `<li data-i="${i}"><b>${i + 1}</b><span class="t">${g.title}</span><span class="n">${g.note}</span></li>`,
+      // 這次沒排的關卡前面放一條分隔線，主持人一眼知道那些不用管
+      ("extra" in g && g.extra && !("extra" in (GAMES[i - 1] ?? {})) ? `<li class="sep">這次沒排的關卡</li>` : "") +
+      `<li data-i="${i}" class="${"extra" in g && g.extra ? "extra" : ""}"><b>${i + 1}</b><span class="t">${g.title}</span><span class="n">${g.note}</span></li>`,
   ).join("");
 
   let gotoWaiting: { index: number; timer: ReturnType<typeof setTimeout> } | null = null;
 
   list.addEventListener("click", (e) => {
     const li = (e.target as HTMLElement).closest("li");
-    if (!li) return;
+    // 分隔線那一列沒有 data-i，點到它不做事
+    if (!li || li.dataset.i === undefined) return;
     const i = Number(li.dataset.i);
     if (!cmd({ k: "goto", index: i })) return;
 
@@ -245,7 +251,10 @@ async function connect(token?: string, insecure = false): Promise<void> {
     nowGameId = s?.game ?? "";
     $("nowGame").textContent = s?.game ? `${g?.title ?? s.game}　第 ${s.round} 回合` : "—";
     $("nowHint").textContent = s?.hint ?? "";
-    [...list.children].forEach((el, j) => el.classList.toggle("on", GAMES[j]?.id === s?.game));
+    // 用 data-i 對，不用子元素的位置 —— 清單裡夾了一列分隔線
+    list.querySelectorAll<HTMLElement>("li[data-i]").forEach((el) =>
+      el.classList.toggle("on", GAMES[Number(el.dataset.i)]?.id === s?.game),
+    );
 
     /* 開始／暫停的狀態只認投影幕回報的 running。
        用「我剛剛按了開始」來標亮的話，指令掉了會標成綠的，
@@ -309,6 +318,28 @@ async function connect(token?: string, insecure = false): Promise<void> {
     $("btnQr").textContent = qrOn ? "📱 QR 顯示中（點一下隱藏）" : "📱 QR 已隱藏（點一下顯示）";
   });
 
+  /* ---- 聲音 ----
+     投影幕那台出聲（場地喇叭），這裡只是開關。講話、宣布事情的時候
+     把音樂關掉就好，音效可以留著。 */
+  let bgmOn = true;
+  let sfxOn = true;
+  const syncSound = (): void => {
+    $("btnBgm").classList.toggle("on", bgmOn);
+    $("btnBgm").textContent = `🎵 背景音樂：${bgmOn ? "開" : "關"}`;
+    $("btnSfx").classList.toggle("on", sfxOn);
+    $("btnSfx").textContent = `🔔 音效：${sfxOn ? "開" : "關"}`;
+  };
+  $("btnBgm").addEventListener("click", () => {
+    if (!cmd({ k: "sound", bgm: !bgmOn, sfx: sfxOn })) return;
+    bgmOn = !bgmOn;
+    syncSound();
+  });
+  $("btnSfx").addEventListener("click", () => {
+    if (!cmd({ k: "sound", bgm: bgmOn, sfx: !sfxOn })) return;
+    sfxOn = !sfxOn;
+    syncSound();
+  });
+
   $("btnZero").addEventListener("click", () => {
     if (!confirm("把所有人的總分歸零？這個動作不能復原。")) return;
     cmd({ k: "resetScores" });
@@ -342,6 +373,12 @@ async function connect(token?: string, insecure = false): Promise<void> {
   /* ---- 計分表 ---- */
   room.onScores((rows: ScoreRow[]) => {
     $("count").textContent = String(rows.length);
+    // 各隊人數：只在主控台看得到
+    $("teamCounts").innerHTML = DISPLAY_ORDER.map((id) => {
+      const t = TEAMS[id];
+      const n = rows.filter((r) => r.team === id).length;
+      return `<span class="chip${t.light ? " light" : ""}" style="background:${t.color};color:${t.ink}">${t.pikmin} ${n}</span>`;
+    }).join("");
     const scored = rows.filter((r) => r.total > 0);
     $("tbody").innerHTML =
       rows.length === 0

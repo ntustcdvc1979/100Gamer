@@ -130,3 +130,14 @@ h2 { margin: 0 0 .6rem; font-size: .8rem; font-weight: 900; letter-spacing: .08e
 /* 風象是白的。主控台的底也是淺色，白底白字看不見 ——
    字色改用各隊的 ink，淺色隊再加一圈邊框把形狀撐出來。 */
 .chip.light { border: 1px solid var(--line); }
+
+/* 各隊人數。投影幕上不寫，只有主持人看得到。 */
+.teamCounts { display: flex; flex-wrap: wrap; gap: .3rem; justify-content: flex-end; margin-top: .35rem; }
+.teamCounts .chip { font-size: .8rem; }
+
+/* 這次沒排的關卡：淡一點，前面一條分隔 */
+.games li.sep {
+  display: block; padding: .6rem .2rem .1rem; border: none; background: none;
+  font-size: .75rem; font-weight: 800; color: var(--ink-soft); cursor: default;
+}
+.games li.extra { opacity: .55; }

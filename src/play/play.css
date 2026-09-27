@@ -235,3 +235,8 @@
   transform-origin: center bottom;
   transition: height .1s linear;
 }
+
+/* 選隊按鈕上的小皮克敏與名稱（主視覺 group.png 的分組） */
+.teamBtn .tp { line-height: 0; }
+.teamBtn .tz { font-size: .72rem; font-weight: 700; opacity: .7; }
+.team .myPik { display: inline-block; vertical-align: -.35em; margin-right: .3rem; }

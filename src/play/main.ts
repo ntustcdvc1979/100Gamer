@@ -20,7 +20,8 @@
 import "../shared/base.css";
 import "./play.css";
 import { AccessDenied, openRoom, type Room } from "../net/room";
-import { TEAMS, TEAM_IDS, type TeamId } from "../shared/teams";
+import { DISPLAY_ORDER, TEAMS, TEAM_IDS, type TeamId } from "../shared/teams";
+import { pikminSvg } from "../shared/pikminSvg";
 import { colorScore, fromHex, toHex, type Rgb } from "../shared/color";
 import {
   countyPaths,
@@ -106,7 +107,8 @@ async function main(): Promise<void> {
   /* ---------- 選隊 ---------- */
   let picked: TeamId | null = null;
   const teamBox = $("teams");
-  teamBox.innerHTML = TEAM_IDS.map((id) => {
+  // 照主視覺的順序排：火、土、水、風
+  teamBox.innerHTML = DISPLAY_ORDER.map((id) => {
     const t = TEAMS[id];
     // --c 選中時的底色、--b 邊框、--t 沒選中時的字色、--k 選中時的字色。
     //
@@ -117,7 +119,9 @@ async function main(): Promise<void> {
     return (
       `<button type="button" class="teamBtn" data-t="${id}" ` +
       `style="--c:${t.color};--b:${border};--t:${text};--k:${t.ink}">` +
-      `<span class="tn">${t.name}</span><span class="tc" data-c="${id}">—</span></button>`
+      `<span class="tp">${pikminSvg(id, 44)}</span>` +
+      `<span class="tn">${t.pikmin}</span><span class="tz">${t.name}星座</span>` +
+      `<span class="tc" data-c="${id}">—</span></button>`
     );
   }).join("");
 
@@ -205,7 +209,8 @@ function startPlaying(room: Room, name: string, team: TeamId, motionOk: FlipSupp
   document.body.style.background = def.color;
   document.body.style.color = def.ink;
   document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute("content", def.color);
-  $("teamName").textContent = def.name;
+  // 頭上那一格寫「紅皮克敏」，旁邊站一隻自己隊伍的皮克敏
+  $("teamName").innerHTML = `<span class="myPik">${pikminSvg(team, 30)}</span>${def.pikmin}`;
   $("myName").textContent = name;
 
   keepAwake();

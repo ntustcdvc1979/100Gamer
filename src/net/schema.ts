@@ -241,6 +241,8 @@ export type Command =
   | { k: "leaderboard"; on: boolean }
   /** 投影幕上顯示／隱藏 QR code */
   | { k: "qr"; on: boolean }
+  /** 投影幕的背景音樂與音效開關 */
+  | { k: "sound"; bgm: boolean; sfx: boolean }
   /** 把所有人的總分歸零 */
   | { k: "resetScores" }
   /** 把某個人踢出去。伺服器處理，不是投影幕。 */

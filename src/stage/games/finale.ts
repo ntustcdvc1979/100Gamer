@@ -14,6 +14,7 @@
    ============================================================ */
 
 import { TEAMS, TEAM_IDS, type TeamId } from "../../shared/teams";
+import { bigText, createConfetti, font, meadow, pikmin, shade, sky } from "../cartoon";
 import type { Game, GameContext } from "./types";
 
 const SHOW = 10;
@@ -27,6 +28,10 @@ export function createFinaleGame(): Game {
   /** 進到這一關時凍結一份名次，之後不再變 —— 頒獎到一半名次跳動很難看 */
   let frozen: { uid: string; name: string; team: TeamId; total: number }[] = [];
   let teamTotals: Record<string, number> = {};
+  const confetti = createConfetti();
+  let lastDraw = 0;
+  /** 冠軍揭曉過了沒（放一次號角就好） */
+  let crowned = false;
 
   function snapshot(ctx: GameContext): void {
     frozen = [...ctx.field.actors.entries()]
@@ -44,10 +49,14 @@ export function createFinaleGame(): Game {
     title: "總排行榜",
     brief: "頒獎。T 開始一個一個揭曉，R 重來。這一關的分數是跨關卡累計的總分。",
     hideQr: true,
+    cartoon: true,
+    bgm: "award",
 
     enter(ctx) {
       running = false;
       revealedCount = 0;
+      crowned = false;
+      confetti.clear();
       snapshot(ctx);
       ctx.publish({
         phase: "result",
@@ -60,7 +69,7 @@ export function createFinaleGame(): Game {
       });
     },
 
-    step(_dt, now) {
+    step(_dt, now, ctx) {
       if (!running) return;
       const target = Math.min(SHOW, frozen.length);
       if (revealedCount >= target) {
@@ -70,22 +79,29 @@ export function createFinaleGame(): Game {
       if (now - lastStep >= STEP_MS) {
         lastStep = now;
         revealedCount++;
+        if (revealedCount >= target && !crowned) {
+          // 冠軍跳出來：號角、歡呼、彩帶
+          crowned = true;
+          ctx.sfx("fanfare");
+          setTimeout(() => ctx.sfx("cheer"), 600);
+          confetti.burst(0.5, 0.25, 220, now);
+        } else {
+          ctx.sfx("pop");
+        }
       }
     },
 
     draw(now, ctx) {
       const { ctx: g, w, h, unit } = ctx.surface;
+      const dt = Math.min(0.1, (now - lastDraw) / 1000);
+      lastDraw = now;
+      sky(g, w, h, now);
+      meadow(g, w, h, h * 0.72, now);
 
-      g.textAlign = "center";
-      g.textBaseline = "middle";
-      g.fillStyle = "#F2A72C";
-      g.font = `900 ${Math.round(unit * 7)}px system-ui, "Noto Sans TC", sans-serif`;
-      g.fillText("總排行榜", w / 2, unit * 8);
+      bigText(g, "總排行榜", w / 2, unit * 8, unit * 7, "#E07B00");
 
       if (frozen.length === 0) {
-        g.fillStyle = "rgba(255,255,255,.5)";
-        g.font = `700 ${Math.round(unit * 4)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillText("還沒有人得分", w / 2, h / 2);
+        bigText(g, "還沒有人得分", w / 2, h / 2, unit * 4, "#4A5570");
         return;
       }
 
@@ -105,12 +121,12 @@ export function createFinaleGame(): Game {
         const fresh = i === firstVisible;
 
         g.textAlign = "right";
-        g.fillStyle = i === 0 ? "#F2A72C" : "rgba(255,255,255,.5)";
-        g.font = `900 ${Math.round(unit * 3.4)}px system-ui, "Noto Sans TC", sans-serif`;
+        g.fillStyle = i === 0 ? "#E07B00" : "#4A5570";
+        g.font = font(unit * 3.4);
         g.fillText(`${i + 1}`, w * 0.2, y);
 
         g.textAlign = "left";
-        g.fillStyle = "#FFFFFF";
+        g.fillStyle = "#1E3A7A";
         // 剛跳出來的那一名閃一下，眼睛才知道要看哪裡
         g.globalAlpha = fresh ? 0.6 + 0.4 * Math.sin(now / 90) : 1;
         g.fillText(r.name, w * 0.22, y);
@@ -119,8 +135,8 @@ export function createFinaleGame(): Game {
         g.fillStyle = TEAMS[r.team].color;
         g.fillRect(w * 0.42, y - unit * 1.5, barW, unit * 3);
 
-        g.fillStyle = "#FFFFFF";
-        g.font = `900 ${Math.round(unit * 3)}px system-ui, "Noto Sans TC", sans-serif`;
+        g.fillStyle = "#1E3A7A";
+        g.font = font(unit * 3);
         g.fillText(`${r.total}`, w * 0.42 + barW + unit * 1.5, y);
       });
 
@@ -135,7 +151,7 @@ export function createFinaleGame(): Game {
       // 名次 → 左右位置。0=第一名放中間偏左，1=第二名放最左…
       const order = [ranked[1], ranked[0], ranked[2], ranked[3]];
       /** 柱子最高可以多高。上面還要留名字和分數的位置。 */
-      const maxBar = unit * 22;
+      const maxBar = unit * 18;
 
       g.textAlign = "center";
       order.forEach((id, i) => {
@@ -156,25 +172,30 @@ export function createFinaleGame(): Game {
           g.strokeRect(bx, ground - bh, cw, bh);
         }
 
+        // 柱子上站一隻這隊的皮克敏，分數和名字寫在牠頭上
+        const pikH = unit * 7;
+        pikmin(g, cx, ground - bh, pikH, id, { t: now, phase: i, wave: first && crowned });
+        const labelBase = ground - bh - pikH - unit * 0.5;
+
         g.textBaseline = "bottom";
-        g.fillStyle = first ? "#F2A72C" : "#FFFFFF";
-        g.font = `900 ${Math.round(unit * 3.6)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillText(String(t), cx, ground - bh - unit * 4.5);
-        g.fillStyle = TEAMS[id].color;
-        g.font = `900 ${Math.round(unit * 3)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillText(TEAMS[id].name, cx, ground - bh - unit * 1);
+        g.fillStyle = first ? "#E07B00" : "#1E3A7A";
+        g.font = font(unit * 3.6);
+        g.fillText(String(t), cx, labelBase - unit * 3.5);
+        // 白色、黃色的字直接寫在天空上看不清楚，用描邊字、顏色壓深一點
+        bigText(g, TEAMS[id].pikmin, cx, labelBase - unit * 1.4, unit * 2.8, TEAMS[id].light ? "#3A4A66" : shade(TEAMS[id].color, -0.2));
 
         // 柱子上寫名次，站上去的感覺才出得來
         g.textBaseline = "middle";
         g.fillStyle = TEAMS[id].ink;
-        g.font = `900 ${Math.round(unit * 4)}px system-ui, "Noto Sans TC", sans-serif`;
+        g.font = font(unit * 4);
         if (bh > unit * 7) g.fillText(String(ranked.indexOf(id) + 1), cx, ground - bh + unit * 4);
+
       });
 
+      confetti.draw(g, w, h, now, dt);
+
       if (revealedCount === 0) {
-        g.fillStyle = "rgba(255,255,255,.65)";
-        g.font = `700 ${Math.round(unit * 3)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillText("準備頒獎", w / 2, h * 0.5);
+        bigText(g, "準備頒獎", w / 2, h * 0.45, unit * 4, "#1E4FB8");
       }
     },
 
@@ -203,6 +224,8 @@ export function createFinaleGame(): Game {
       if (e.key === "r" || e.key === "R") {
         running = false;
         revealedCount = 0;
+        crowned = false;
+        confetti.clear();
         snapshot(ctx);
         return true;
       }

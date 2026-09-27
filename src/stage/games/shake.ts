@@ -12,7 +12,19 @@
    延遲容忍度：極高。三個都是累加型的，單筆早到晚到 100ms 看不出來。
    ============================================================ */
 
-import { TEAMS, TEAM_IDS, type TeamId } from "../../shared/teams";
+import { DISPLAY_ORDER, TEAMS, TEAM_IDS, type TeamId } from "../../shared/teams";
+import {
+  bigText,
+  carrot,
+  createConfetti,
+  font,
+  meadow,
+  pikmin,
+  roundRect,
+  sky,
+  timerBadge,
+  woodSign,
+} from "../cartoon";
 import { PER_CARROT } from "../../shared/rules";
 import type { Game, GameContext } from "./types";
 
@@ -301,6 +313,11 @@ export function createShakeRunGame(): Game {
   /** 每一隊跑了幾步 */
   const total: Record<string, number> = {};
   let podium: TeamId[] = [];
+  /** 各隊最近的速度（步/秒），平滑過的。跑者腳擺多快看這個。 */
+  const rate: Record<string, number> = {};
+  const confetti = createConfetti();
+  let lastDraw = 0;
+  let lastTick = 0;
 
   /** 給名次分數。第一到第四：100 / 70 / 50 / 30。 */
   function award(ctx: GameContext, id: TeamId): void {
@@ -330,6 +347,8 @@ export function createShakeRunGame(): Game {
     finishedAt = 0;
     left = RUN_MS;
     timeUp = false;
+    lastTick = 0;
+    confetti.clear();
     podium = [];
     for (const id of TEAM_IDS) total[id] = 0;
     meter.reset();
@@ -341,6 +360,12 @@ export function createShakeRunGame(): Game {
   function finishOnTime(ctx: GameContext): void {
     running = false;
     timeUp = true;
+    ctx.sfx("end");
+    // 還沒有人到終點就時間到的話，這裡才是第一名誕生的時刻
+    if (podium.length === 0) {
+      setTimeout(() => ctx.sfx("cheer"), 500);
+      confetti.burst(0.53, 0.3, 140, performance.now());
+    }
     const rest = TEAM_IDS.filter((id) => !podium.includes(id)).sort(
       (a, b) => (total[b] ?? 0) - (total[a] ?? 0),
     );
@@ -354,18 +379,39 @@ export function createShakeRunGame(): Game {
   return {
     id: "shakerun",
     title: "熱血賽跑",
+    cartoon: true,
     brief: "團體賽。全隊次數累加，一搖一步，由左跑到右。",
 
     enter: reset,
 
-    step(_dt, now, ctx) {
-      if (!running) return;
+    step(dt, now, ctx) {
+      if (!running) {
+        for (const id of TEAM_IDS) rate[id] = 0;
+        return;
+      }
       const teams = byTeam(ctx, meter.drain(ctx));
+
+      // 最後五秒每秒滴答一聲
+      const secs = Math.ceil((endsAt - now) / 1000);
+      if (secs <= 5 && secs > 0 && secs !== lastTick) {
+        lastTick = secs;
+        ctx.sfx("tick");
+      }
+
       for (const id of TEAM_IDS) {
+        // 速度平滑一下，不然跑者的腳會一幀快一幀停
+        rate[id] = (rate[id] ?? 0) * 0.92 + (teams[id].sum / Math.max(dt, 0.001)) * 0.08;
         total[id] = (total[id] ?? 0) + teams[id].sum;
         if ((total[id] ?? 0) >= goalSteps && !podium.includes(id)) {
           podium.push(id);
-          if (podium.length === 1) finishedAt = now;
+          if (podium.length === 1) {
+            finishedAt = now;
+            // 第一名衝線：全場歡呼、灑彩帶
+            ctx.sfx("cheer");
+            confetti.burst(0.8, 0.3, 160, now);
+          } else {
+            ctx.sfx("ding");
+          }
           award(ctx, id); // 名次分數給全隊每一個人
         }
       }
@@ -391,113 +437,160 @@ export function createShakeRunGame(): Game {
 
     draw(now, ctx) {
       const { ctx: g, w, h, unit } = ctx.surface;
-      /* 左邊留一塊寫隊名和步數，右邊留一塊給終點線。
+      const dt = Math.min(0.1, (now - lastDraw) / 1000);
+      lastDraw = now;
+
+      sky(g, w, h, now);
+      meadow(g, w, h, h * 0.2, now);
+
+      /* 左邊留一塊寫隊名和步數，右邊留一塊給終點旗。
          角色從 startX 跑到 endX，不繞圈 —— 位置本身就是進度。 */
-      const startX = w * 0.26;
+      const startX = w * 0.27;
       // 終點留在 QR 左邊。QR 在右上角，跑到 0.9 的話終點線會被它蓋住。
-      const endX = w * 0.82;
+      const endX = w * 0.8;
       const laneH = h * 0.13;
-      const top = h * 0.22;
+      const top = h * 0.26;
       const bottom = top + laneH * 4;
 
-      g.textBaseline = "middle";
-
-      TEAM_IDS.forEach((id, i) => {
-        const y = top + laneH * i + laneH / 2;
-        const steps = total[id] ?? 0;
-        const done = Math.min(1, steps / goalSteps);
-        const px = startX + (endX - startX) * done;
-
-        // 跑道
-        g.strokeStyle = "rgba(255,255,255,.10)";
-        g.lineWidth = laneH * 0.8;
-        g.beginPath();
-        g.moveTo(startX, y);
-        g.lineTo(endX, y);
-        g.stroke();
-
-        // 已經跑過的那一段染成隊色，遠遠看就是一條進度條
-        g.strokeStyle = TEAMS[id].color;
-        g.globalAlpha = 0.3;
-        g.lineWidth = laneH * 0.8;
-        g.beginPath();
-        g.moveTo(startX, y);
-        g.lineTo(Math.max(startX + 0.1, px), y);
-        g.stroke();
-        g.globalAlpha = 1;
-
-        /* 隊名與步數都放在起點線左邊。
-           步數不能貼著起點線 —— 還沒起跑時角色就停在那裡，
-           數字會整個被角色蓋掉（第一版就是這樣，畫面上看不到 0）。 */
-        g.textAlign = "right";
-        g.fillStyle = TEAMS[id].color;
-        g.font = `900 ${Math.round(unit * 3)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillText(TEAMS[id].name, startX - unit * 12, y);
-        g.fillStyle = "#FFFFFF";
-        g.font = `900 ${Math.round(unit * 2.8)}px system-ui, "Noto Sans TC", sans-serif`;
-        // 就是手機上那個數字的隊伍加總，沒有換算
-        g.fillText(`${steps}`, startX - unit * 5, y);
-
-        // 角色
-        g.fillStyle = TEAMS[id].color;
-        g.beginPath();
-        g.arc(px, y, unit * 3, 0, Math.PI * 2);
-        g.fill();
-        g.strokeStyle = "rgba(255,255,255,.7)";
-        g.lineWidth = unit * 0.4;
-        g.stroke();
-
-        // 用 ink 不是白色 —— 風象的角色是白的，白字寫上去整個看不見
-        g.fillStyle = TEAMS[id].ink;
-        g.textAlign = "center";
-        g.font = `900 ${Math.round(unit * 2)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillText(TEAMS[id].name[0] ?? "", px, y);
-      });
-
-      // 起點線與終點線
-      g.strokeStyle = "rgba(255,255,255,.35)";
+      // 跑道：一整塊紅土，四條白線分道
+      roundRect(g, startX - unit * 3, top, endX - startX + unit * 8, laneH * 4, unit * 3);
+      g.fillStyle = "#D9784A";
+      g.fill();
+      g.strokeStyle = "#FFFFFF";
       g.lineWidth = unit * 0.5;
+      g.stroke();
+      for (let i = 1; i < 4; i++) {
+        g.beginPath();
+        g.moveTo(startX - unit * 3, top + laneH * i);
+        g.lineTo(endX + unit * 5, top + laneH * i);
+        g.stroke();
+      }
+
+      // 起點線
+      g.strokeStyle = "rgba(255,255,255,.8)";
+      g.lineWidth = unit * 0.7;
       g.beginPath();
       g.moveTo(startX, top);
       g.lineTo(startX, bottom);
       g.stroke();
 
-      g.strokeStyle = "#FFFFFF";
-      g.lineWidth = unit * 0.8;
+      // 終點：黑白格子
+      const sq = unit * 1.3;
+      for (let r = 0; r * sq < laneH * 4; r++) {
+        for (let c = 0; c < 2; c++) {
+          g.fillStyle = (r + c) % 2 === 0 ? "#1B1B1F" : "#FFFFFF";
+          g.fillRect(endX + c * sq - sq, top + r * sq, sq, Math.min(sq, bottom - (top + r * sq)));
+        }
+      }
+      // 終點旗
+      g.strokeStyle = "#5A3517";
+      g.lineWidth = unit * 0.5;
       g.beginPath();
-      g.moveTo(endX, top);
-      g.lineTo(endX, bottom);
+      g.moveTo(endX + sq, top);
+      g.lineTo(endX + sq, top - unit * 9);
       g.stroke();
-      // 終點兩個字放在線的下面。放上面會被右上角的 QR 蓋掉。
-      g.textAlign = "center";
-      g.fillStyle = "#FFFFFF";
-      g.font = `900 ${Math.round(unit * 2.4)}px system-ui, "Noto Sans TC", sans-serif`;
-      g.fillText("終點", endX, bottom + unit * 3);
+      const flutter = Math.sin(now / 160) * unit * 0.5;
+      for (let r = 0; r < 3; r++) {
+        for (let c = 0; c < 4; c++) {
+          g.fillStyle = (r + c) % 2 === 0 ? "#1B1B1F" : "#FFFFFF";
+          g.fillRect(endX + sq + c * unit * 1.2, top - unit * 9 + r * unit * 1.2 + (c / 4) * flutter, unit * 1.2, unit * 1.2);
+        }
+      }
 
-      g.fillStyle = "rgba(255,255,255,.75)";
-      g.font = `700 ${Math.round(unit * 2.2)}px system-ui, "Noto Sans TC", sans-serif`;
-      g.fillText(`全程 ${goalSteps} 步　一搖一步`, w / 2, bottom + unit * 3);
+      DISPLAY_ORDER.forEach((id, i) => {
+        const t = TEAMS[id];
+        const y = top + laneH * i + laneH / 2;
+        const steps = total[id] ?? 0;
+        const done = Math.min(1, steps / goalSteps);
+        const px = startX + (endX - startX) * done;
 
-      // 倒數秒數放在跑道上方正中間，遠遠就看得到還剩多久
+        // 左邊：隊伍膠囊，寫著皮克敏名稱與步數
+        const pw = startX - unit * 6;
+        const ph = laneH * 0.7;
+        roundRect(g, unit * 2, y - ph / 2, pw - unit * 2, ph, ph / 2);
+        g.fillStyle = t.light ? "#FFFFFF" : t.color;
+        g.fill();
+        g.strokeStyle = t.light ? "#B8C0CE" : "#FFFFFF";
+        g.lineWidth = unit * 0.45;
+        g.stroke();
+        g.fillStyle = t.ink;
+        g.font = font(unit * 2.6);
+        g.textAlign = "left";
+        g.textBaseline = "middle";
+        g.fillText(t.pikmin, unit * 4.5, y);
+        g.textAlign = "right";
+        g.font = font(unit * 3.2);
+        // 就是手機上那個數字的隊伍加總，沒有換算
+        g.fillText(String(steps), pw - unit * 2, y);
+
+        // 跑過的地方留一條隊伍色的軌跡
+        g.fillStyle = t.light ? "rgba(255,255,255,.55)" : t.color;
+        g.globalAlpha = t.light ? 1 : 0.35;
+        g.fillRect(startX, y - laneH * 0.12, px - startX, laneH * 0.24);
+        g.globalAlpha = 1;
+
+        // 跑者：跑多快腳就擺多快。到終點的舉手歡呼。
+        const finished = podium.includes(id);
+        const speed = Math.min(1, (rate[id] ?? 0) / 60);
+        pikmin(g, px, y + laneH * 0.42, laneH * 1.05, id, {
+          t: now, phase: i,
+          walk: finished ? 0 : running ? Math.max(0.15, speed) : 0,
+          wave: finished,
+          face: 1,
+        });
+        // 腳下揚起的灰塵
+        if (running && speed > 0.2 && !finished) {
+          g.fillStyle = "rgba(255,240,220,.6)";
+          for (let k = 0; k < 3; k++) {
+            const a = ((now / 90 + k * 7) % 10) / 10;
+            g.beginPath();
+            g.arc(px - unit * (2 + a * 5), y + laneH * 0.4 - a * unit * 2, unit * (1 - a) * 1.2, 0, Math.PI * 2);
+            g.fill();
+          }
+        }
+      });
+
+      // 倒數圓章放跑道上方正中間，遠遠就看得到還剩多久
       const secs = running ? Math.max(0, Math.ceil((endsAt - now) / 1000)) : Math.ceil(left / 1000);
+      timerBadge(
+        g, (startX + endX) / 2, top - unit * 9, unit * 6.5,
+        running ? String(secs) : timeUp ? "完" : "準備",
+        now,
+        running && secs <= 10,
+      );
+      g.font = font(unit * 2.2, 400);
       g.textAlign = "center";
-      g.fillStyle = secs <= 10 && running ? "#F2A72C" : "#FFFFFF";
-      g.font = `900 ${Math.round(unit * 7)}px system-ui, "Noto Sans TC", sans-serif`;
-      g.fillText(running ? `${secs}` : timeUp ? "時間到" : "準備中", w / 2, top - unit * 7);
+      g.fillStyle = "#1E3A7A";
+      g.fillText(`全程 ${goalSteps} 步・一搖一步`, (startX + endX) / 2, bottom + unit * 3);
 
       /* 名次排在跑道下面，不要貼左上角。
-         左上角有 HUD 的「N 人已加入」和關卡標題，名次畫上去會疊在一起 ——
+         左上角有 HUD 的關卡名，名次畫上去會疊在一起 ——
          而名次正是這一關結束時全場唯一要看的東西。 */
       if (podium.length > 0) {
-        g.textAlign = "center";
-        g.font = `900 ${Math.round(unit * 3)}px system-ui, "Noto Sans TC", sans-serif`;
-        const gap = w * 0.16;
-        const x0 = w / 2 - (gap * (podium.length - 1)) / 2;
+        const gap = w * 0.15;
+        const x0 = (startX + endX) / 2 - (gap * (podium.length - 1)) / 2;
         podium.forEach((id, i) => {
-          g.fillStyle = ["#F2A72C", "#CFCFCF", "#C98B45", "#FFFFFF"][i] ?? "#FFF";
-          g.fillText(`${i + 1}. ${TEAMS[id].name}`, x0 + gap * i, bottom + unit * 9);
+          const t = TEAMS[id];
+          const cx = x0 + gap * i;
+          const cy = bottom + unit * 10;
+          const medal = ["#F2B705", "#B7BFCC", "#C98446", "#8E9AAF"][i] ?? "#8E9AAF";
+          g.fillStyle = medal;
+          g.beginPath();
+          g.arc(cx - unit * 6, cy, unit * 2.4, 0, Math.PI * 2);
+          g.fill();
+          g.strokeStyle = "#FFFFFF";
+          g.lineWidth = unit * 0.4;
+          g.stroke();
+          g.fillStyle = "#FFFFFF";
+          g.font = font(unit * 2.8);
+          g.textAlign = "center";
+          g.textBaseline = "middle";
+          g.fillText(String(i + 1), cx - unit * 6, cy + unit * 0.1);
+          bigText(g, t.pikmin, cx + unit * 2, cy, unit * 3.2, t.light ? "#3A4A66" : t.color, "#FFFFFF");
         });
       }
+
+      confetti.draw(g, w, h, now, dt);
     },
 
     /** 主控台可以調全程要幾步。 */
@@ -512,6 +605,8 @@ export function createShakeRunGame(): Game {
       if (running === on) return true;
       running = on;
       if (on) {
+        ctx.sfx("start");
+        lastTick = 0;
         // 暫停過就從剩下的時間接著跑，不要重新給滿一分鐘
         endsAt = performance.now() + left;
         meter.drain(ctx);
@@ -573,6 +668,13 @@ export function createShakeCarrotGame(): Game {
   const carrots: Record<string, number> = {};
   /** 飛出去的蘿蔔。純視覺，不影響計分。 */
   let flying: FlyingCarrot[] = [];
+  const confetti = createConfetti();
+  let lastDraw = 0;
+  /** 時間到了沒、誰贏。時間到之後畫面上要留著勝利的那一隊。 */
+  let timeUp = false;
+  let winner: TeamId | null = null;
+  /** 上一次響倒數滴答的秒數 */
+  let lastTick = 0;
 
   /** 這一隊離下一輪蘿蔔還有多遠，0..1。純視覺。 */
   function progressOf(ctx: GameContext, team: TeamId): number {
@@ -606,6 +708,10 @@ export function createShakeCarrotGame(): Game {
   function reset(ctx: GameContext): void {
     running = false;
     left = CARROT_MS;
+    timeUp = false;
+    winner = null;
+    lastTick = 0;
+    confetti.clear();
     carry.clear();
     flying = [];
     for (const id of TEAM_IDS) carrots[id] = 0;
@@ -615,12 +721,14 @@ export function createShakeCarrotGame(): Game {
   }
 
   /** 從某一隊的田裡噴一根蘿蔔出來。 */
-  function spawn(teamIndex: number, now: number): void {
+  function spawn(team: TeamId, now: number): void {
     // 太多顆會拖慢投影幕，而且畫面會糊成一團
     if (flying.length > 80) return;
+    // 田的欄位跟畫面一樣照主視覺的順序排（火、土、水、風）
+    const col = DISPLAY_ORDER.indexOf(team);
     flying.push({
-      x: 0.125 + teamIndex * 0.25 + (Math.random() - 0.5) * 0.12,
-      y: 0.78,
+      x: 0.02 + 0.24 * col + 0.12 + (Math.random() - 0.5) * 0.08,
+      y: 0.6,
       vx: (Math.random() - 0.5) * 0.5,
       vy: -1.1 - Math.random() * 0.5,
       rot: Math.random() * Math.PI,
@@ -632,6 +740,7 @@ export function createShakeCarrotGame(): Game {
   return {
     id: "shakecarrot",
     title: "拔蘿蔔",
+    cartoon: true,
     brief: "分組對抗。一分鐘內把手機往上拉，拉 10 下一根，哪一隊拔最多。",
 
     enter: reset,
@@ -649,9 +758,23 @@ export function createShakeCarrotGame(): Game {
       if (!running) return;
       if (now >= endsAt) {
         running = false;
+        timeUp = true;
         const best = TEAM_IDS.reduce((a, b) => ((carrots[a] ?? 0) >= (carrots[b] ?? 0) ? a : b));
-        announce(ctx, `時間到！${TEAMS[best].name}拔了 ${carrots[best] ?? 0} 根 🥕`);
+        winner = (carrots[best] ?? 0) > 0 ? best : null;
+        ctx.sfx("end");
+        if (winner) {
+          setTimeout(() => ctx.sfx("cheer"), 500);
+          confetti.burst(0.5, 0.35, 160, now);
+        }
+        announce(ctx, `時間到！${TEAMS[best].pikmin}拔了 ${carrots[best] ?? 0} 根`);
         return;
+      }
+
+      // 最後五秒每秒滴答一聲
+      const secs = Math.ceil((endsAt - now) / 1000);
+      if (secs <= 5 && secs > 0 && secs !== lastTick) {
+        lastTick = secs;
+        ctx.sfx("tick");
       }
 
       const delta = meter.drain(ctx);
@@ -667,8 +790,8 @@ export function createShakeCarrotGame(): Game {
           actor.score += pulled;
           gained = true;
           // 每拔一根噴一顆出來，最多一次噴 3 顆（狂拉的人不要洗版）
-          const ti = TEAM_IDS.indexOf(actor.team);
-          for (let k = 0; k < Math.min(3, pulled); k++) spawn(ti, now);
+          for (let k = 0; k < Math.min(3, pulled); k++) spawn(actor.team, now);
+          ctx.sfx("pop");
         }
       }
 
@@ -683,66 +806,116 @@ export function createShakeCarrotGame(): Game {
     draw(now, ctx) {
       const { ctx: g, w, h, unit } = ctx.surface;
       const left = running ? Math.max(0, Math.ceil((endsAt - now) / 1000)) : 0;
+      const dt = Math.min(0.1, (now - lastDraw) / 1000);
+      lastDraw = now;
 
-      // 泥土地
-      g.fillStyle = "#3A2A1C";
-      g.fillRect(0, h * 0.78, w, h * 0.22);
+      sky(g, w, h, now);
+      meadow(g, w, h, h * 0.42, now);
 
-      g.textAlign = "center";
-      g.textBaseline = "middle";
-      g.fillStyle = "#FFFFFF";
-      g.font = `900 ${Math.round(unit * 8)}px system-ui, "Noto Sans TC", sans-serif`;
-      g.fillText(running ? `${left}` : "準備中", w / 2, unit * 10);
+      /* 田：一大片土，四隊各一塊。
+         土面的高度就是「蘿蔔從哪裡冒出來」的那條線。 */
+      const soilTop = h * 0.6;
+      const soilGrad = g.createLinearGradient(0, soilTop, 0, h);
+      soilGrad.addColorStop(0, "#9A6436");
+      soilGrad.addColorStop(1, "#6B4222");
+      g.fillStyle = soilGrad;
+      roundRect(g, w * 0.02, soilTop, w * 0.96, h - soilTop + unit * 5, unit * 4);
+      g.fill();
+      // 田壟
+      g.strokeStyle = "rgba(60,30,10,.35)";
+      g.lineWidth = unit * 0.5;
+      for (let i = 1; i < 5; i++) {
+        const y = soilTop + (h - soilTop) * (i / 5);
+        g.beginPath();
+        g.moveTo(w * 0.04, y);
+        g.lineTo(w * 0.96, y);
+        g.stroke();
+      }
 
-      // 四隊的田
-      const colW = w / 4;
-      TEAM_IDS.forEach((id, i) => {
+      // 倒數圓章放正中間上方，全場都看得到
+      timerBadge(g, w / 2, unit * 12, unit * 7, running ? String(left) : timeUp ? "完" : "準備", now, running && left <= 5);
+
+      const colW = (w * 0.96) / 4;
+      DISPLAY_ORDER.forEach((id, i) => {
+        const t = TEAMS[id];
+        const cx = w * 0.02 + colW * i + colW / 2;
         const n = carrots[id] ?? 0;
-        const cx = colW * i + colW / 2;
 
-        g.fillStyle = TEAMS[id].color;
-        g.font = `900 ${Math.round(unit * 4)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillText(TEAMS[id].name, cx, h * 0.9);
-        g.fillStyle = "#FFFFFF";
-        g.font = `900 ${Math.round(unit * 7)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillText(String(n), cx, h * 0.96);
+        // 還沒拔的蘿蔔葉子，整整齊齊種在田裡
+        for (let r = 0; r < 3; r++) {
+          for (let c = 0; c < 4; c++) {
+            const lx = cx - colW * 0.32 + c * colW * 0.21 + (r % 2) * colW * 0.1;
+            const ly = soilTop + unit * 9 + r * unit * 7;
+            g.fillStyle = "#4CAF3A";
+            for (const a of [-0.5, 0, 0.5]) {
+              g.save();
+              g.translate(lx, ly);
+              g.rotate(a + Math.sin(now / 600 + c + r) * 0.08);
+              g.beginPath();
+              g.ellipse(0, -unit * 1.2, unit * 0.45, unit * 1.3, 0, 0, Math.PI * 2);
+              g.fill();
+              g.restore();
+            }
+          }
+        }
 
         /* 正在拔的那一根：從土裡冒出來的高度 = 這一隊的平均進度。
            用平均而不是總和 —— 總和除以 10 取餘數的話，三十個人一起拉
            會讓它每秒轉好幾圈，看起來只是雜訊。平均的意思是
            「這一隊離下一輪蘿蔔還有多遠」，動得慢但是看得懂。 */
-        const soil = h * 0.78;
         const rise = progressOf(ctx, id);
+        const cs = unit * 11;
+        const shake = running ? Math.sin(now / 45 + i) * unit * 0.25 * rise : 0;
         g.save();
-        // 只畫土面以上的部分，蘿蔔才像是從土裡長出來的
         g.beginPath();
-        g.rect(0, 0, w, soil);
+        g.rect(cx - colW / 2, 0, colW, soilTop + unit * 0.5);
         g.clip();
-        g.font = `${Math.round(unit * 6)}px system-ui, sans-serif`;
-        g.fillText("🥕", cx, soil + unit * 3.5 - rise * unit * 6.5);
+        carrot(g, cx + shake, soilTop - rise * cs * 0.8 + unit * 0.5, cs, 0);
         g.restore();
+        // 土堆
+        g.fillStyle = "#7A4B26";
+        g.beginPath();
+        g.ellipse(cx, soilTop + unit * 0.6, unit * 4, unit * 1.2, 0, 0, Math.PI * 2);
+        g.fill();
+
+        // 吉祥物在旁邊使勁拉：越接近拔出來身體越往後仰
+        pikmin(g, cx + colW * 0.2, soilTop + unit * 1, unit * 15, id, {
+          t: now, phase: i, face: -1,
+          lean: running ? -0.1 - rise * 0.35 : 0,
+          walk: running ? 0.25 : 0,
+        });
+
+        // 木牌：幾根
+        // 右下角有連線狀態的小標籤，木牌往上抬一點才不會被它壓到
+        woodSign(g, cx, h - unit * 10, `${t.pikmin} ${n} 根`, unit * 3, unit);
       });
 
       // 飛出去的蘿蔔
-      g.font = `${Math.round(unit * 5)}px system-ui, sans-serif`;
       for (const c of flying) {
         const age = (now - c.born) / 2500;
         g.save();
         g.globalAlpha = Math.max(0, 1 - age * age);
-        g.translate(c.x * w, c.y * h);
-        g.rotate(c.rot);
-        g.fillText("🥕", 0, 0);
+        carrot(g, c.x * w, c.y * h, unit * 8, c.rot);
         g.restore();
       }
       g.globalAlpha = 1;
+
+      confetti.draw(g, w, h, now, dt);
+
+      if (timeUp && winner) {
+        const tt = TEAMS[winner];
+        bigText(g, `${tt.pikmin}獲勝！`, w / 2, h * 0.3, unit * 8, tt.light ? "#3A4A66" : tt.color);
+      }
     },
 
     running: () => running,
 
     run(on, ctx) {
+      if (timeUp) return false; // 已經比完了，要再玩一次請按「重來」
       if (running === on) return true;
       running = on;
       if (on) {
+        ctx.sfx("start");
         /* 暫停過就從剩下的時間接著跑，不要重新給滿一分鐘 ——
            主持人按暫停多半是現場出了狀況（有人跌倒、麥克風壞掉），
            回來之後把時間重設等於前面白拔了。第一次開始時 left 是滿的。 */
@@ -757,18 +930,9 @@ export function createShakeCarrotGame(): Game {
     },
 
     key(e, ctx) {
+      // T 走跟主控台同一條路，才不會有兩套開始／暫停的邏輯要對
       if (e.key === "t" || e.key === "T") {
-        if (!running) {
-          running = true;
-          endsAt = performance.now() + CARROT_MS;
-          left = CARROT_MS;
-          meter.drain(ctx);
-          announce(ctx, "拉！把蘿蔔拔起來！");
-        } else {
-          running = false;
-          left = Math.max(0, endsAt - performance.now());
-          announce(ctx, "暫停");
-        }
+        this.run?.(!running, ctx);
         return true;
       }
       if (e.key === "r" || e.key === "R") {

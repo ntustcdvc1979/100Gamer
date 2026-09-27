@@ -5,12 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>投影幕｜百人派對遊戲</title>
 <meta name="robots" content="noindex">
+<!-- 粉圓體：主視覺那種圓圓胖胖的字。載不到（現場沒網路）就退回系統字型，照樣能用。 -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Huninn&display=swap">
 </head>
 <body>
 <canvas id="stage"></canvas>
 
 <div class="hud">
-  <div class="count"><b id="count">0</b> 人已加入</div>
+  <!-- 人數只給主持人看（主控台上有）。投影幕上刻意不寫，見 games/lobby.ts。
+       元素留著是因為 QR 縮小的判斷還要用它。 -->
+  <div class="count" hidden><b id="count">0</b> 人已加入</div>
   <div class="game" id="gameTitle"></div>
 </div>
 
@@ -20,6 +26,8 @@
 </div>
 
 <ul class="menu" id="menu"></ul>
+
+<div class="soundHint" id="soundHint">🔇 點一下畫面或按 F 開啟聲音</div>
 
 <div class="status" id="status"><span class="dot"></span><span id="statusText">連線中…</span></div>
 

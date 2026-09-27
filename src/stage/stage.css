@@ -68,3 +68,33 @@ body { background: #14141A; overflow: hidden; }
    頒獎那一刻畫面上不該還有 QR 和「100 人已加入」。 */
 body.board .hud,
 body.board .qr-panel { opacity: 0; pointer-events: none; transition: opacity .25s; }
+
+/* ---- 卡通主題（主視覺 group.png）----
+   天空是亮的，原本的白字加陰影會糊掉，改成描邊的深色字。 */
+body.cartoon .hud { color: #1E4FB8; text-shadow: none; font-family: "Huninn", "Noto Sans TC", system-ui, sans-serif; }
+body.cartoon .hud .game {
+  display: inline-block;
+  padding: .3rem 1rem;
+  border-radius: 999px;
+  background: #fff;
+  border: 3px solid #1E4FB8;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, .15);
+}
+body.cartoon .qr-panel { border: 4px solid #fff; box-shadow: 0 6px 18px rgba(0, 0, 0, .2); }
+/* 等待大廳與頒獎本身就有大標題，左上角那顆關卡名是多餘的 */
+body.noHud .hud { display: none; }
+
+/* 聲音還沒解鎖的提示。瀏覽器規定要先被點過一次才能出聲。 */
+.soundHint {
+  position: fixed;
+  left: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 20;
+  padding: .45rem .9rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, .7);
+  color: #fff;
+  font-size: .95rem;
+  font-weight: 700;
+}
+.soundHint[hidden] { display: none; }

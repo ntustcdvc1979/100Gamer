@@ -15,6 +15,7 @@ import "../shared/base.css";
 import "./stage.css";
 import { svg } from "../shared/qrcode.js";
 import { openRoom, playUrl } from "../net/room";
+import { createStageAudio } from "./audio";
 import { createSurface } from "./canvas";
 import { Field } from "./render";
 import { createGames, type Game, type GameContext } from "./games";
@@ -64,12 +65,37 @@ async function main(): Promise<void> {
   const surface = createSurface($<HTMLCanvasElement>("stage"));
   const field = new Field();
   const games = createGames();
+  const audio = createStageAudio();
   const ctx: GameContext = {
     field,
     surface,
     publish: (patch) => room.publishState(patch),
     publishPins: (pins) => room.publishPins(pins),
+    sfx: (name) => audio.sfx(name),
+    qrLeft: () => {
+      const panel = $("qrPanel");
+      if (panel.hidden) return surface.w;
+      const scale = surface.w / window.innerWidth; // CSS 像素 → 畫布像素（dpr）
+      return panel.getBoundingClientRect().left * scale;
+    },
+    hudBottom: () => {
+      const hud = document.querySelector<HTMLElement>(".hud");
+      if (!hud || hud.offsetParent === null) return 0;
+      return hud.getBoundingClientRect().bottom * (surface.w / window.innerWidth);
+    },
   };
+
+  /* 聲音要等使用者碰過頁面才放得出來（瀏覽器的規定）。
+     投影幕那台開場時本來就會按 F 全螢幕或點一下畫面，那一下就順便解鎖。
+     還沒解鎖之前左下角掛一個提示 —— 主持人不會知道為什麼沒有聲音。 */
+  const soundHint = $("soundHint");
+  const unlock = (): void => {
+    audio.unlock();
+    setTimeout(() => (soundHint.hidden = audio.unlocked), 200);
+  };
+  window.addEventListener("keydown", unlock);
+  window.addEventListener("pointerdown", unlock);
+  setInterval(() => (soundHint.hidden = audio.unlocked), 1000);
 
   let index = -1;
   let game: Game | null = null;
@@ -77,8 +103,11 @@ async function main(): Promise<void> {
   /** 主持人有沒有把 QR 打開。關卡自己也可以要求收起來（hideQr）。 */
   let qrWanted = true;
 
+  let playerCount = 0;
   function syncQr(): void {
     $("qrPanel").hidden = game?.hideQr === true || !qrWanted;
+    // 有人進來之後 QR 縮小讓出畫面 —— 但大廳例外：那時候大家正在掃
+    $("qrPanel").classList.toggle("small", playerCount > 0 && game?.id !== "lobby");
   }
 
   /**
@@ -102,6 +131,11 @@ async function main(): Promise<void> {
     room.clearGameState();
     game.enter(ctx);
     $("gameTitle").textContent = game.title;
+    // 卡通主題的關卡底是亮的天空，HUD 要換一套配色（見 stage.css）
+    document.body.classList.toggle("cartoon", game.cartoon === true);
+    // 大廳和頒獎自己畫了大標題，左上角那顆關卡名是多餘的，還會壓到名次
+    document.body.classList.toggle("noHud", game.id === "lobby" || game.id === "finale");
+    audio.setBgm(game.bgm ?? "play");
     // brief 是給主持人看的操作說明（按什麼鍵、怎麼換題），
     // 觀眾不需要，所以只留在 Esc 的關卡選單裡，不印在投影幕上。
     syncQr();
@@ -138,7 +172,8 @@ async function main(): Promise<void> {
       field.upsert(uid, p.name, p.team);
     }
     countEl.textContent = String(uids.size);
-    $("qrPanel").classList.toggle("small", uids.size > 0);
+    playerCount = uids.size;
+    syncQr();
 
     // 手機的選隊畫面要看得到哪一隊人少，不然一定有一隊爆滿。
     // 四個數字，只有人進出時才變，放進 state 划算。
@@ -219,6 +254,9 @@ async function main(): Promise<void> {
       case "qr":
         qrWanted = cmd.on;
         syncQr();
+        break;
+      case "sound":
+        audio.setEnabled(cmd.bgm, cmd.sfx);
         break;
       case "resetScores":
         field.clearTotals();

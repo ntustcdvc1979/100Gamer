@@ -35,6 +35,8 @@
    ============================================================ */
 
 import type { PlayerAction } from "../../net/schema";
+import { DISPLAY_ORDER, TEAMS } from "../../shared/teams";
+import { bigText, card, font, pikmin, roundRect, shade, sky, woodSign } from "../cartoon";
 import type { Game, GameContext } from "./types";
 
 interface Dish {
@@ -66,6 +68,9 @@ const DISHES: Dish[] = [
   { name: "烤箱焗烤", mode: "timing", seconds: 8, gesture: "torch", verb: "按鈕開烤箱燈" },
   { name: "端湯上桌", mode: "soup", seconds: 20, gesture: "tilt", verb: "傾斜手機保持平衡，別把湯灑了" },
 ];
+
+/** 鍋子裡每一道菜的顏色（照 DISHES 的順序）。焗烤和端湯各自有道具，不用這裡。 */
+const FOOD = ["#F6D365", "#E9B44C", "#D9C7A0", "#F0A1A1", "#6DBE45", "#E8D9B8"];
 
 /** 誤差幾秒就掉到 0 分 */
 const ZERO_AT = 5;
@@ -129,6 +134,7 @@ export function createHeatMasterGame(): Game {
   return {
     id: "heatmaster",
     title: "火候達人",
+    cartoon: true,
     brief: "個人賽，請依畫面上的指令在最精準的時間動作。",
 
     enter(ctx) {
@@ -145,6 +151,7 @@ export function createHeatMasterGame(): Game {
       const grace = d.mode === "soup" ? 2000 : GRACE_MS;
       if (now - startedAt > d.seconds * 1000 + grace) {
         running = false;
+        ctx.sfx("end");
         announce(
           ctx,
           d.mode === "soup"
@@ -180,75 +187,216 @@ export function createHeatMasterGame(): Game {
       const d = dish();
       const elapsed = running ? (now - startedAt) / 1000 : 0;
 
-      g.textAlign = "center";
-      g.textBaseline = "middle";
+      // 廚房：暖色的天空當牆，下面一張木頭流理台
+      sky(g, w, h, now, true);
+      const counterY = h * 0.72;
+      const wood = g.createLinearGradient(0, counterY, 0, h);
+      wood.addColorStop(0, "#C98A52");
+      wood.addColorStop(1, "#9A6232");
+      g.fillStyle = wood;
+      g.fillRect(0, counterY, w, h - counterY);
+      g.fillStyle = "#E3A86C";
+      g.fillRect(0, counterY, w, unit * 1.2);
+
+      // 菜名掛在木牌上
+      woodSign(g, w / 2, unit * 9, `第 ${index + 1} 道・${d.name}`, unit * 4, unit);
 
       // 前 HIDE_AFTER 秒看得到，之後淡掉。這一關就是要大家自己數。
       const reveal = running ? Math.max(0, 1 - elapsed / HIDE_AFTER) : 1;
-
-      // 鍋子。熱度也在兩秒內燒到定色，不然它會變成另一個碼表。
+      // 熱度也在兩秒內燒到定色，不然它會變成另一個碼表。
       const heat = Math.min(1, elapsed / HIDE_AFTER);
+
       const cx = w / 2;
-      const cy = h * 0.42;
-      const rr = Math.min(w, h) * 0.24;
+      const cy = h * 0.5;
+      const rr = Math.min(w, h) * 0.2;
+      const doneShare = ctx.field.actors.size > 0 ? acts.size / ctx.field.actors.size : 0;
 
-      g.fillStyle = `hsl(${Math.round(30 - heat * 30)} ${Math.round(40 + heat * 45)}% ${Math.round(28 + heat * 18)}%)`;
-      g.beginPath();
-      g.arc(cx, cy, rr, 0, Math.PI * 2);
-      g.fill();
-      g.strokeStyle = "rgba(255,255,255,.25)";
-      g.lineWidth = unit * 0.8;
-      g.stroke();
-
-      // 進度圈也要淡掉 —— 它比數字更好讀，留著等於沒藏
-      if (reveal > 0.01) {
-        g.save();
-        g.globalAlpha = reveal;
-        g.strokeStyle = "#F2A72C";
-        g.lineWidth = unit * 1.4;
+      if (d.gesture === "torch") {
+        /* 烤箱：玻璃窗的亮度 = 已經按下開燈的人的比例。
+           全場的手電筒一起亮的時候，投影幕上的烤箱也跟著亮起來。 */
+        const ow = rr * 2.4;
+        const oh = rr * 1.8;
+        card(g, cx - ow / 2, cy - oh / 2, ow, oh, "#5E6675", unit, "#3A404C");
+        const glow = running ? 0.15 + doneShare * 0.85 : 0.1;
+        roundRect(g, cx - ow * 0.38, cy - oh * 0.3, ow * 0.76, oh * 0.55, unit * 2);
+        const win = g.createRadialGradient(cx, cy, 0, cx, cy, ow * 0.4);
+        win.addColorStop(0, `rgba(255,220,120,${glow})`);
+        win.addColorStop(1, `rgba(120,60,20,${0.4 + glow * 0.4})`);
+        g.fillStyle = win;
+        g.fill();
+        g.strokeStyle = "#2A2E36";
+        g.lineWidth = unit * 0.6;
+        g.stroke();
+        // 焗烤盤
+        g.fillStyle = shade("#F2C94C", -0.3 + glow * 0.3);
         g.beginPath();
-        g.arc(
-          cx, cy, rr + unit * 2.5,
-          -Math.PI / 2,
-          -Math.PI / 2 + Math.PI * 2 * Math.min(1, elapsed / d.seconds),
-        );
+        g.ellipse(cx, cy + oh * 0.12, ow * 0.25, oh * 0.08, 0, 0, Math.PI * 2);
+        g.fill();
+        // 旋鈕
+        g.fillStyle = "#C7CCD6";
+        for (const k of [-1, 0, 1]) {
+          g.beginPath();
+          g.arc(cx + k * ow * 0.2, cy + oh * 0.38, unit * 1.3, 0, Math.PI * 2);
+          g.fill();
+        }
+      } else if (d.mode === "soup") {
+        // 碗：湯的高度 = 全場平均還剩多少（還沒人交就是滿的）
+        let avg = 100;
+        if (acts.size > 0) {
+          let sum = 0;
+          for (const a of acts.values()) sum += a.score;
+          avg = sum / acts.size;
+        }
+        const sway = running ? Math.sin(now / 400) * 0.08 : 0;
+        g.save();
+        g.translate(cx, cy + rr * 0.3);
+        g.rotate(sway);
+        g.beginPath();
+        g.moveTo(-rr * 1.2, -rr * 0.4);
+        g.quadraticCurveTo(-rr * 1.15, rr * 0.9, 0, rr * 0.95);
+        g.quadraticCurveTo(rr * 1.15, rr * 0.9, rr * 1.2, -rr * 0.4);
+        g.closePath();
+        g.fillStyle = "#FFFFFF";
+        g.fill();
+        g.strokeStyle = "#C9A06A";
+        g.lineWidth = unit * 0.8;
+        g.stroke();
+        // 湯面
+        // 滿的時候也留一點碗緣，不然整個碗看起來像是橘色的
+        const level = -rr * 0.22 + (1 - avg / 100) * rr * 1.0;
+        g.save();
+        g.clip();
+        g.fillStyle = "#E8A33D";
+        g.fillRect(-rr * 1.3, level, rr * 2.6, rr * 2);
+        g.restore();
+        // 碗口的藍色花紋
+        g.strokeStyle = "#2D6CDF";
+        g.lineWidth = unit * 0.5;
+        g.beginPath();
+        g.moveTo(-rr * 1.15, -rr * 0.2);
+        g.quadraticCurveTo(0, -rr * 0.05, rr * 1.15, -rr * 0.2);
         g.stroke();
         g.restore();
-      }
-
-      g.fillStyle = "#FFFFFF";
-      g.font = `900 ${Math.round(unit * 6)}px system-ui, "Noto Sans TC", sans-serif`;
-      g.fillText(d.name, cx, cy - unit * 3);
-
-      if (running) {
-        g.save();
-        g.globalAlpha = reveal;
-        g.font = `900 ${Math.round(unit * 10)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillText(elapsed.toFixed(1), cx, cy + unit * 4);
-        g.restore();
-        if (reveal < 0.15) {
-          g.save();
-          g.globalAlpha = 0.5;
-          g.font = `900 ${Math.round(unit * 5)}px system-ui, "Noto Sans TC", sans-serif`;
-          g.fillText("？", cx, cy + unit * 4);
-          g.restore();
+        // 熱氣
+        g.strokeStyle = "rgba(255,255,255,.7)";
+        g.lineWidth = unit * 0.5;
+        for (const k of [-1, 0, 1]) {
+          g.beginPath();
+          const sx = cx + k * rr * 0.4;
+          g.moveTo(sx, cy - rr * 0.3);
+          g.bezierCurveTo(sx + unit * 2, cy - rr * 0.6, sx - unit * 2, cy - rr * 0.8, sx + Math.sin(now / 300 + k) * unit, cy - rr * 1.1);
+          g.stroke();
         }
       } else {
-        g.font = `900 ${Math.round(unit * 10)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillText(`${d.seconds}s`, cx, cy + unit * 4);
+        // 爐火：開始之後才燒起來
+        if (running) {
+          for (let k = 0; k < 7; k++) {
+            const fx = cx - rr * 0.8 + (k / 6) * rr * 1.6;
+            const fh = rr * (0.25 + 0.12 * Math.sin(now / 90 + k * 1.7));
+            const fg = g.createLinearGradient(0, cy + rr * 0.85, 0, cy + rr * 0.85 - fh);
+            fg.addColorStop(0, "#FF5A1F");
+            fg.addColorStop(1, "rgba(255,210,60,0)");
+            g.fillStyle = fg;
+            g.beginPath();
+            g.moveTo(fx - unit * 1.4, cy + rr * 0.85);
+            g.quadraticCurveTo(fx, cy + rr * 0.85 - fh * 1.3, fx + unit * 1.4, cy + rr * 0.85);
+            g.fill();
+          }
+        }
+        // 平底鍋：柄＋鍋身
+        g.fillStyle = "#3A2A1C";
+        roundRect(g, cx + rr * 0.9, cy - unit * 1.2, rr * 1.0, unit * 2.4, unit * 1.2);
+        g.fill();
+        g.fillStyle = "#2B2B30";
+        g.beginPath();
+        g.ellipse(cx, cy + rr * 0.1, rr, rr * 0.62, 0, 0, Math.PI * 2);
+        g.fill();
+        g.fillStyle = "#44444C";
+        g.beginPath();
+        g.ellipse(cx, cy + rr * 0.05, rr * 0.88, rr * 0.52, 0, 0, Math.PI * 2);
+        g.fill();
+        // 鍋裡的菜。顏色隨熱度變深，兩秒內定色，不會變成另一個碼表。
+        const food = FOOD[index] ?? "#F2C94C";
+        g.fillStyle = shade(food, -heat * 0.25);
+        g.beginPath();
+        g.ellipse(cx, cy + rr * 0.05, rr * 0.6, rr * 0.34, 0, 0, Math.PI * 2);
+        g.fill();
+        if (d.gesture === "shake") {
+          // 撒胡椒粉：黑點點
+          g.fillStyle = "#2A2A2A";
+          for (let k = 0; k < 18; k++) {
+            g.beginPath();
+            g.arc(cx + Math.cos(k * 2.3) * rr * 0.45, cy + Math.sin(k * 1.7) * rr * 0.22, unit * 0.35, 0, Math.PI * 2);
+            g.fill();
+          }
+        }
+        if (index === 2) {
+          // 掀鍋蓋：蓋子，越多人掀了就抬得越高
+          const lift = doneShare * rr * 0.6;
+          g.fillStyle = "#C7CCD6";
+          g.beginPath();
+          g.ellipse(cx, cy - lift, rr * 0.9, rr * 0.35, 0, Math.PI, 0);
+          g.fill();
+          g.fillStyle = "#8C93A1";
+          g.beginPath();
+          g.arc(cx, cy - lift - rr * 0.35, unit * 1.5, 0, Math.PI * 2);
+          g.fill();
+        }
       }
 
-      g.font = `700 ${Math.round(unit * 3)}px system-ui, "Noto Sans TC", sans-serif`;
+      /* 秒數放在一個對話框裡。前兩秒看得到，之後換成「？」——
+         這一關的樂趣就是用身體數秒，把碼表留在畫面上就沒了。 */
+      const bubbleX = cx;
+      const bubbleY = cy - rr * 1.25;
+      card(g, bubbleX - unit * 11, bubbleY - unit * 5.5, unit * 22, unit * 11, "#FFFFFF", unit, "#F2A72C");
+      g.textAlign = "center";
+      g.textBaseline = "middle";
+      if (running && d.mode === "soup") {
+        // 端湯不是數秒的題目，是「撐完 20 秒」—— 倒數要一直看得到
+        g.fillStyle = "#E07B00";
+        g.font = font(unit * 7);
+        g.fillText(String(Math.max(0, Math.ceil(d.seconds - elapsed))), bubbleX, bubbleY);
+      } else if (running) {
+        g.save();
+        g.globalAlpha = reveal;
+        g.fillStyle = "#E07B00";
+        g.font = font(unit * 7);
+        g.fillText(elapsed.toFixed(1), bubbleX, bubbleY);
+        g.restore();
+        if (reveal < 0.15) {
+          g.fillStyle = "#E07B00";
+          g.font = font(unit * 7);
+          g.fillText("？", bubbleX, bubbleY);
+        }
+      } else {
+        g.fillStyle = "#E07B00";
+        g.font = font(unit * 6);
+        g.fillText(`${d.seconds}秒`, bubbleX, bubbleY);
+      }
+
+      // 四隻戴廚師帽的皮克敏站在流理台上
+      DISPLAY_ORDER.forEach((id, i) => {
+        const side = i < 2 ? -1 : 1;
+        const px = cx + side * (rr * 1.9 + (i % 2) * unit * 11);
+        pikmin(g, px, counterY + unit * 1, unit * 17, id, {
+          t: now, phase: i, chef: true, face: side === -1 ? 1 : -1,
+          wave: !running && acts.size > 0 && i === Math.floor(now / 900) % 4,
+        });
+      });
+
+      g.font = font(unit * 2.8);
+      g.fillStyle = "#6B3A10";
+      g.textAlign = "center";
       g.fillText(
         d.mode === "soup"
           ? running
-            ? `${d.verb}　${acts.size}人已端到`
+            ? `${d.verb}　${acts.size} 人已端到`
             : `撐 ${d.seconds} 秒，${d.verb}`
           : running
-            ? `${d.seconds} 秒時${d.verb}　${acts.size}人已完成`
-            : `　${d.seconds} 秒時${d.verb}`,
+            ? `${d.seconds} 秒時${d.verb}　${acts.size} 人已完成`
+            : `${d.seconds} 秒時${d.verb}`,
         cx,
-        cy + rr + unit * 7,
+        counterY + unit * 5,
       );
 
       /* 端湯：投影幕上寫全場平均還剩多少湯。
@@ -257,10 +405,7 @@ export function createHeatMasterGame(): Game {
       if (d.mode === "soup" && acts.size > 0) {
         let sum = 0;
         for (const a of acts.values()) sum += a.score;
-        g.font = `900 ${Math.round(unit * 3.4)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillStyle = "#F2A72C";
-        g.fillText(`全場平均還剩 ${Math.round(sum / acts.size)}% 的湯`, cx, cy + rr + unit * 11);
-        g.fillStyle = "#FFFFFF";
+        bigText(g, `全場平均還剩 ${Math.round(sum / acts.size)}% 的湯`, cx, counterY + unit * 11, unit * 3.4, "#E07B00");
       }
 
       // 這一關刻意不畫玩家的圓圈：一百個點飄在鍋子旁邊只會擋住秒數。
@@ -272,30 +417,34 @@ export function createHeatMasterGame(): Game {
         .slice(0, 5);
 
       if (top.length > 0) {
-        const boxH = unit * (4 + top.length * 4);
-        g.fillStyle = "rgba(10,10,14,.8)";
-        g.fillRect(unit * 2, h - boxH - unit * 2, unit * 36, boxH);
-        g.textAlign = "left";
-        g.fillStyle = "#FFFFFF";
-        g.font = `900 ${Math.round(unit * 2.4)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillText("火候最準的", unit * 4, h - boxH + unit * 0.5);
+        const bw = unit * 40;
+        const boxH = unit * (7 + top.length * 4);
+        const bx = w - bw - unit * 3;
+        const by = h - boxH - unit * 3;
+        card(g, bx, by, bw, boxH, "#FFFFFF", unit, "#F2A72C");
+        bigText(g, d.mode === "soup" ? "湯端最穩的" : "火候最準的", bx + bw / 2, by + unit * 3.5, unit * 2.8, "#E07B00");
 
         top.forEach(([uid, actor], i) => {
           const f = acts.get(uid);
           if (!f) return;
-          const y = h - boxH + unit * (4.5 + i * 4);
-          const err = f.ms / 1000 - d.seconds;
-          g.font = `700 ${Math.round(unit * 2.2)}px system-ui, "Noto Sans TC", sans-serif`;
-          g.fillStyle = "#FFFFFF";
-          g.fillText(actor.name, unit * 4, y);
-          g.fillStyle = "rgba(255,255,255,.65)";
-          g.fillText(`${err >= 0 ? "+" : ""}${err.toFixed(2)}s`, unit * 18, y);
-          // tap 的人標一下，現場才知道有多少支手機的感測器沒作用
-          if (f.by === "tap") g.fillText("（按鈕）", unit * 26, y);
-          g.textAlign = "right";
-          g.fillStyle = "#FFFFFF";
-          g.fillText(`${f.score}`, unit * 36, y);
+          const y = by + unit * (8.5 + i * 4);
+          g.font = font(unit * 2.3);
+          g.textBaseline = "middle";
           g.textAlign = "left";
+          g.fillStyle = TEAMS[actor.team].light ? "#3A4A66" : shade(TEAMS[actor.team].color, -0.25);
+          g.fillText(actor.name, bx + unit * 2, y);
+          g.fillStyle = "#7A6A5A";
+          if (d.mode === "soup") {
+            g.fillText(`剩 ${f.score}%`, bx + unit * 17, y);
+          } else {
+            const err = f.ms / 1000 - d.seconds;
+            g.fillText(`${err >= 0 ? "+" : ""}${err.toFixed(2)}s`, bx + unit * 17, y);
+            // tap 的人標一下，現場才知道有多少支手機的感測器沒作用
+            if (f.by === "tap" && d.gesture !== "torch") g.fillText("（按鈕）", bx + unit * 26, y);
+          }
+          g.textAlign = "right";
+          g.fillStyle = "#1E3A7A";
+          g.fillText(`${f.score}`, bx + bw - unit * 2, y);
         });
       }
     },
@@ -308,19 +457,16 @@ export function createHeatMasterGame(): Game {
       if (on) {
         startedAt = performance.now();
         acts.clear();
+        ctx.sfx("start");
       }
       announce(ctx, on ? startHint() : "暫停");
       return true;
     },
 
     key(e, ctx) {
+      // T 走跟主控台同一條路，才不會有兩套開始／暫停的邏輯要對
       if (e.key === "t" || e.key === "T") {
-        running = !running;
-        if (running) {
-          startedAt = performance.now();
-          acts.clear();
-        }
-        announce(ctx, running ? startHint() : "暫停");
+        this.run?.(!running, ctx);
         return true;
       }
       if (e.key === "ArrowRight" && index < DISHES.length - 1) {

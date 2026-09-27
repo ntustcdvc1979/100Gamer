@@ -17,7 +17,8 @@
 
 import { GEO_QUESTIONS } from "../../config/geo";
 import { COUNTY_LABELS, countyPaths, distanceKm, geoScore, outlinePath, project, unproject } from "../../shared/taiwan";
-import { TEAMS, TEAM_IDS } from "../../shared/teams";
+import { DISPLAY_ORDER, TEAMS, TEAM_IDS } from "../../shared/teams";
+import { bigText, card, font, meadow, pikmin, roundRect, shade, sky, timerBadge } from "../cartoon";
 import { GEO_ROUND_MS as ROUND_MS } from "../../shared/rules";
 import type { Game, GameContext } from "./types";
 
@@ -48,6 +49,10 @@ export function createGeoGame(): Game {
   let running = false;
   let revealed = false;
   let endsAt = 0;
+  /** 公布的時刻，旗子彈一下的動畫用 */
+  let revealedAt = 0;
+  /** 上一次響倒數滴答的秒數，一秒只響一次 */
+  let lastTick = 0;
   const guesses = new Map<string, Guess>();
   let ranked: [string, Guess][] = [];
 
@@ -101,6 +106,9 @@ export function createGeoGame(): Game {
   function reveal(ctx: GameContext): void {
     running = false;
     revealed = true;
+    revealedAt = performance.now();
+    // 鼓聲滾奏＋「登登！」—— 全場抬頭看投影幕的那一刻
+    ctx.sfx("reveal");
     ranked = [...guesses.entries()].sort((a, b) => a[1].km - b[1].km);
     for (const [uid, g] of ranked) {
       const actor = ctx.field.actors.get(uid);
@@ -128,6 +136,7 @@ export function createGeoGame(): Game {
   return {
     id: "geo",
     title: "地理達人",
+    cartoon: true,
     brief: "個人賽。30秒內，玩家在手機的地圖上點你認為的位置。",
 
     enter(ctx) {
@@ -142,6 +151,15 @@ export function createGeoGame(): Game {
 
     step(_dt, now, ctx) {
       if (running && now >= endsAt) reveal(ctx);
+
+      // 最後五秒每秒滴答一聲
+      if (running) {
+        const left = Math.ceil((endsAt - now) / 1000);
+        if (left <= 5 && left > 0 && left !== lastTick) {
+          lastTick = left;
+          ctx.sfx("tick");
+        }
+      }
 
       // 收件中才送隊友的點。公布之後投影幕上什麼都看得到了，
       // 再送就是白燒頻寬。
@@ -175,116 +193,151 @@ export function createGeoGame(): Game {
     },
 
     draw(now, ctx) {
-      const { ctx: g, unit } = ctx.surface;
+      const { ctx: g, w, h, unit } = ctx.surface;
       const box = mapBox(ctx);
+      sky(g, w, h, now);
+      meadow(g, w, h, h * 0.86, now);
 
       /* ---- 左欄：題目、照片、倒數 ----
          左欄的寬度就是「畫面左緣到地圖左緣」那一段。照片與文字都夾在
          這個寬度裡，所以永遠不會壓到地圖；高度也另外夾住，不會掉出畫面。 */
       const pad = unit * 3;
       const colW = box.x - pad * 2;
+      const colX = pad;
 
-      g.textAlign = "left";
-      g.textBaseline = "top";
-      g.fillStyle = "#FFFFFF";
-      g.font = `900 ${Math.round(unit * 6)}px system-ui, "Noto Sans TC", sans-serif`;
-      // 從 unit*18 開始，讓開左上角 HUD（人數、關卡名）
-      g.fillText(q().name, pad, unit * 18);
+      // 題目卡。從 HUD（關卡名）底下開始，不要被它蓋住。
+      const qTop = Math.max(unit * 12, ctx.hudBottom() + unit * 2);
+      card(g, colX, qTop, colW, unit * 16, "#FFFFFF", unit, "#1E4FB8");
+      bigText(g, q().name, colX + colW / 2, qTop + unit * 6.5, unit * 5.5, "#1E4FB8");
       if (q().hint) {
-        g.font = `700 ${Math.round(unit * 2.6)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillStyle = "rgba(255,255,255,.6)";
-        g.fillText(q().hint as string, pad, unit * 26);
+        g.font = font(unit * 2.3, 400);
+        g.fillStyle = "#4A5570";
+        g.textAlign = "center";
+        g.fillText(q().hint as string, colX + colW / 2, qTop + unit * 12.3);
       }
 
-      // 照片。盡量放大到左欄的寬度，但高度不能讓它掉出畫面下緣。
-      let infoY = unit * 32;
+      // 照片做成拍立得：白框、微微歪一點
+      let infoY = qTop + unit * 19;
       const photo = photos.get(index);
       if (photo?.complete && photo.naturalWidth > 1) {
-        const maxH = ctx.surface.h - infoY - unit * 14; // 下面還要留倒數的位置
-        const scale = Math.min(colW / photo.naturalWidth, maxH / photo.naturalHeight);
-        const pw = photo.naturalWidth * scale;
-        const ph = photo.naturalHeight * scale;
-        // 在左欄裡置中，直式橫式都不會偏到一邊
-        g.drawImage(photo, pad + (colW - pw) / 2, infoY, pw, ph);
-        infoY += ph + unit * 3;
+        const maxH = h - infoY - unit * 38; // 下面還要留倒數與隊伍分數
+        if (maxH > unit * 5) {
+          const scale = Math.min((colW - unit * 4) / photo.naturalWidth, maxH / photo.naturalHeight);
+          const pw = photo.naturalWidth * scale;
+          const ph = photo.naturalHeight * scale;
+          g.save();
+          g.translate(colX + colW / 2, infoY + ph / 2 + unit);
+          g.rotate(-0.035);
+          g.shadowColor = "rgba(0,0,0,.25)";
+          g.shadowBlur = unit * 1.5;
+          g.fillStyle = "#FFFFFF";
+          g.fillRect(-pw / 2 - unit, -ph / 2 - unit, pw + unit * 2, ph + unit * 4);
+          g.shadowBlur = 0;
+          g.drawImage(photo, -pw / 2, -ph / 2, pw, ph);
+          g.restore();
+          infoY += ph + unit * 6;
+        }
       }
 
-      g.font = `900 ${Math.round(unit * 4)}px system-ui, "Noto Sans TC", sans-serif`;
-      g.fillStyle = "#F2A72C";
-      const left = running ? Math.ceil((endsAt - now) / 1000) : 0;
+      // 倒數圓章＋狀態
+      const left = running ? Math.max(0, Math.ceil((endsAt - now) / 1000)) : 0;
+      const badgeR = unit * 5;
+      timerBadge(
+        g, colX + badgeR + unit, infoY + badgeR,
+        badgeR,
+        revealed ? "公布" : running ? String(left) : "準備",
+        now,
+        running && left <= 5,
+      );
+      g.font = font(unit * 2.6);
+      g.textAlign = "left";
+      g.textBaseline = "middle";
+      g.fillStyle = "#1E3A7A";
       g.fillText(
-        revealed ? "公布答案" : running ? `${left} 秒　${guesses.size}人已作答` : "準備中",
-        pad,
-        infoY,
+        revealed ? "答案揭曉！" : running ? `${guesses.size} 人已作答` : "等主持人開始",
+        colX + badgeR * 2 + unit * 3,
+        infoY + badgeR,
       );
 
       /* ---- 左欄下方：各隊目前分數 ----
          這一關是個人賽，但大家關心的還是自己那一隊有沒有領先。
-         放左下角，跟題目同一欄，不會壓到地圖也不會被 QR 蓋到。 */
+         每隊一顆膠囊，前面站一隻小皮克敏。 */
       {
         const scores = teamScores(ctx);
-        const baseY = ctx.surface.h - unit * 11;
-        g.textAlign = "left";
-        g.textBaseline = "middle";
-        g.font = `900 ${Math.round(unit * 2.6)}px system-ui, "Noto Sans TC", sans-serif`;
-        TEAM_IDS.forEach((id, i) => {
-          const y = baseY + Math.floor(i / 2) * unit * 4;
-          const x = pad + (i % 2) * (colW / 2);
-          g.fillStyle = TEAMS[id].color;
-          g.fillText(TEAMS[id].name, x, y);
-          g.fillStyle = "#FFFFFF";
-          g.fillText(`${scores[id]?.score ?? 0}`, x + unit * 9, y);
+        const rowH = unit * 5.2;
+        const pillH = rowH - unit * 0.8;
+        const baseY = h - unit * 4 - rowH * 4;
+        DISPLAY_ORDER.forEach((id, i) => {
+          const t = TEAMS[id];
+          const y = baseY + i * rowH;
+          roundRect(g, colX, y, colW, pillH, pillH / 2);
+          g.fillStyle = "rgba(255,255,255,.92)";
+          g.fill();
+          g.strokeStyle = t.light ? "#B8C0CE" : t.color;
+          g.lineWidth = unit * 0.4;
+          g.stroke();
+          pikmin(g, colX + unit * 3.2, y + pillH - unit * 0.3, rowH * 1.05, id, { t: now, phase: i });
+          g.font = font(unit * 2.4);
+          g.textAlign = "left";
+          g.textBaseline = "middle";
+          g.fillStyle = t.light ? "#3A4A66" : shade(t.color, -0.3);
+          g.fillText(t.pikmin, colX + unit * 6.5, y + pillH / 2);
+          g.textAlign = "right";
+          g.fillStyle = "#1E3A7A";
+          g.fillText(String(scores[id]?.score ?? 0), colX + colW - unit * 2, y + pillH / 2);
         });
       }
 
-      /* ---- 右欄：名次。從 QR 下面開始，不要被蓋到。 ---- */
-      if (revealed && ranked.length > 0) {
-        const rx = box.x + box.w + pad;
-        g.font = `700 ${Math.round(unit * 2.6)}px system-ui, "Noto Sans TC", sans-serif`;
-        ranked.slice(0, SHOW_TOP).forEach(([uid, gu], i) => {
-          const a = ctx.field.actors.get(uid);
-          g.fillStyle = i === 0 ? "#F2A72C" : "rgba(255,255,255,.85)";
-          g.fillText(
-            `${i + 1}. ${a?.name ?? ""}　${gu.km.toFixed(1)} km　${gu.score} 分`,
-            rx,
-            unit * 32 + i * unit * 4,
-          );
-        });
-      }
+      /* ---- 中間：地圖，畫成一張藏寶圖卡片 ---- */
+      const mapPad = unit * 1.5;
+      card(g, box.x - mapPad, box.y - mapPad, box.w + mapPad * 2, box.h + mapPad * 2, "#BFE6FF", unit);
 
-      /* ---- 中間：地圖 ---- */
       g.save();
       g.translate(box.x, box.y);
 
-      g.fillStyle = "rgba(255,255,255,.07)";
-      g.fillRect(0, 0, box.w, box.h);
+      // 海浪紋
+      g.strokeStyle = "rgba(255,255,255,.6)";
+      g.lineWidth = Math.max(1, unit * 0.2);
+      for (let i = 0; i < 9; i++) {
+        const wy = box.h * (0.08 + i * 0.11);
+        const wx = (((i * 37) % 70) / 100) * box.w;
+        g.beginPath();
+        g.arc(wx, wy, unit * 1.2, Math.PI * 1.1, Math.PI * 1.9);
+        g.stroke();
+        g.beginPath();
+        g.arc(wx + unit * 2.2, wy, unit * 1.2, Math.PI * 1.1, Math.PI * 1.9);
+        g.stroke();
+      }
 
       const path = new Path2D(outlinePath(box.w, box.h));
-      g.fillStyle = "#2B3A2E";
+      const land = g.createLinearGradient(0, 0, 0, box.h);
+      land.addColorStop(0, "#8FD16A");
+      land.addColorStop(1, "#5DB043");
+      g.fillStyle = land;
       g.fill(path);
-      g.strokeStyle = "rgba(255,255,255,.45)";
-      g.lineWidth = Math.max(1.5, unit * 0.22);
+      g.strokeStyle = "#FFFFFF";
+      g.lineWidth = Math.max(2, unit * 0.45);
       g.stroke(path);
 
       /* 縣市界。畫在島的裡面（用海岸線裁切），不然分界線會戳到海裡。
          它是示意不是行政區圖 —— 目的是讓人一眼抓到「大概在哪一區」。 */
       g.save();
       g.clip(path);
-      g.strokeStyle = "rgba(255,255,255,.22)";
-      g.lineWidth = Math.max(1, unit * 0.14);
+      g.strokeStyle = "rgba(40,90,30,.45)";
+      g.lineWidth = Math.max(1, unit * 0.16);
+      g.setLineDash([unit * 0.6, unit * 0.5]);
       for (const d of countyPaths(box.w, box.h)) g.stroke(new Path2D(d));
+      g.setLineDash([]);
       g.restore();
 
-      g.save();
       g.textAlign = "center";
       g.textBaseline = "middle";
-      g.fillStyle = "rgba(255,255,255,.35)";
-      g.font = `700 ${Math.round(unit * 1.9)}px system-ui, "Noto Sans TC", sans-serif`;
+      g.font = font(unit * 1.8);
+      g.fillStyle = "rgba(30,70,20,.7)";
       for (const c of COUNTY_LABELS) {
         const p = project(c);
         g.fillText(c.name, p.x * box.w, p.y * box.h);
       }
-      g.restore();
 
       // 大家點的位置。**只在公布之後畫** ——
       // 收件中就畫出來的話，後面的人只要看投影幕上哪裡最密就好了，
@@ -292,47 +345,91 @@ export function createGeoGame(): Game {
       if (revealed) {
         for (const [uid, gu] of guesses) {
           const a = ctx.field.actors.get(uid);
-          g.globalAlpha = 0.9;
           g.fillStyle = a ? TEAMS[a.team].color : "#888";
+          g.strokeStyle = a && TEAMS[a.team].light ? "#5A6478" : "#FFFFFF";
+          g.lineWidth = Math.max(1, unit * 0.25);
           g.beginPath();
           g.arc(gu.x * box.w, gu.y * box.h, unit * 1.1, 0, Math.PI * 2);
           g.fill();
+          g.stroke();
         }
-        g.globalAlpha = 1;
-      }
 
-      if (revealed) {
         const t = project(q());
         const tx = t.x * box.w;
         const ty = t.y * box.h;
 
-        // 從前幾名連一條線到正確位置，看得出誰近誰遠
-        g.strokeStyle = "rgba(242,167,44,.55)";
-        g.lineWidth = Math.max(1, unit * 0.18);
+        // 從前幾名連一條虛線到正確位置，看得出誰近誰遠
+        g.strokeStyle = "rgba(230,90,30,.75)";
+        g.lineWidth = Math.max(1, unit * 0.22);
+        g.setLineDash([unit * 0.7, unit * 0.5]);
         for (const [, gu] of ranked.slice(0, SHOW_TOP)) {
           g.beginPath();
           g.moveTo(gu.x * box.w, gu.y * box.h);
           g.lineTo(tx, ty);
           g.stroke();
         }
+        g.setLineDash([]);
 
-        // 正確位置
-        g.fillStyle = "#F2A72C";
+        // 正確位置插一支旗子，公布的瞬間彈一下
+        const k = Math.min(1, (now - revealedAt) / 450);
+        const bounce = 1 + Math.sin(k * Math.PI) * 0.35;
+        const fh = unit * 7 * bounce;
+        g.strokeStyle = "#5A3517";
+        g.lineWidth = unit * 0.5;
         g.beginPath();
-        g.arc(tx, ty, unit * 2.2, 0, Math.PI * 2);
-        g.fill();
-        g.strokeStyle = "#FFFFFF";
-        g.lineWidth = Math.max(2, unit * 0.35);
+        g.moveTo(tx, ty);
+        g.lineTo(tx, ty - fh);
         g.stroke();
+        const flutter = Math.sin(now / 180) * unit * 0.6;
+        g.fillStyle = "#FF3B30";
+        g.beginPath();
+        g.moveTo(tx, ty - fh);
+        g.quadraticCurveTo(tx + unit * 2.5, ty - fh + unit * 0.6 + flutter, tx + unit * 4.5, ty - fh + unit * 1.6);
+        g.lineTo(tx, ty - fh + unit * 3.2);
+        g.closePath();
+        g.fill();
+        g.fillStyle = "#5A3517";
+        g.beginPath();
+        g.ellipse(tx, ty, unit * 1.2, unit * 0.45, 0, 0, Math.PI * 2);
+        g.fill();
 
-        g.fillStyle = "#FFFFFF";
-        g.textAlign = "center";
-        g.textBaseline = "bottom";
-        g.font = `900 ${Math.round(unit * 3)}px system-ui, "Noto Sans TC", sans-serif`;
-        g.fillText(q().name, tx, ty - unit * 3.4);
+        bigText(g, q().name, tx, ty - fh - unit * 2.5, unit * 3, "#E23B2E");
       }
 
       g.restore();
+
+      /* ---- 右欄：名次。從 QR 下面開始，不要被蓋到。 ---- */
+      if (revealed && ranked.length > 0) {
+        const rx = box.x + box.w + pad;
+        const rw = w - rx - pad;
+        const rTop = h * 0.36;
+        const rowH = unit * 5;
+        const shown = ranked.slice(0, SHOW_TOP);
+        card(g, rx, rTop, rw, unit * 8 + shown.length * rowH, "#FFFFFF", unit, "#F2A72C");
+        bigText(g, "最接近的人", rx + rw / 2, rTop + unit * 3.8, unit * 3, "#E07B00");
+        shown.forEach(([uid, gu], i) => {
+          const a = ctx.field.actors.get(uid);
+          const y = rTop + unit * 9.5 + i * rowH;
+          g.font = font(unit * 2.4);
+          g.textBaseline = "middle";
+          g.textAlign = "left";
+          // 名次用圓牌，不用 emoji —— 投影幕那台的系統字型不一定有彩色 emoji
+          const medal = ["#F2B705", "#B7BFCC", "#C98446"][i] ?? "#E3E7EE";
+          g.fillStyle = medal;
+          g.beginPath();
+          g.arc(rx + unit * 3, y, unit * 1.7, 0, Math.PI * 2);
+          g.fill();
+          g.fillStyle = i < 3 ? "#FFFFFF" : "#4A5570";
+          g.textAlign = "center";
+          g.fillText(String(i + 1), rx + unit * 3, y + unit * 0.1);
+          g.textAlign = "left";
+          g.fillStyle = a ? (TEAMS[a.team].light ? "#3A4A66" : shade(TEAMS[a.team].color, -0.25)) : "#333";
+          g.fillText(a?.name ?? "", rx + unit * 6, y);
+          g.textAlign = "right";
+          g.fillStyle = "#1E3A7A";
+          g.fillText(`${gu.km.toFixed(1)} km`, rx + rw - unit * 1.5, y);
+        });
+      }
     },
 
     /**
@@ -393,6 +490,8 @@ export function createGeoGame(): Game {
       if (running || revealed) return true;
       running = true;
       endsAt = performance.now() + ROUND_MS;
+      lastTick = 0;
+      ctx.sfx("start");
       announce(ctx, `${q().name} 在哪裡？在地圖上點一下`);
       return true;
     },

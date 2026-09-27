@@ -10,6 +10,7 @@
    ============================================================ */
 
 import type { GeoItem, PlayerAction, RoomState } from "../../net/schema";
+import type { BgmStyle, Sfx } from "../audio";
 import type { Surface } from "../canvas";
 import type { Field } from "../render";
 
@@ -24,6 +25,24 @@ export interface GameContext {
    * 已節流到 4 Hz，可以放心每幀呼叫。
    */
   publishPins(pins: Record<string, [number, number][]>): void;
+
+  /**
+   * 從場地喇叭放一個音效。只有投影幕出聲，手機不出聲。
+   * 太密的同種音效會被吞掉（見 audio.ts），所以放心在每一次事件都叫。
+   */
+  sfx(name: Sfx): void;
+
+  /**
+   * 右上角 QR 的左緣在畫布上的 x（畫布像素）。QR 收起來時是畫布寬度。
+   *
+   * QR 的大小是用 rem 和 vw 訂的，畫面卻是照比例排的 ——
+   * 寫死「右邊留 24%」在 1080p 剛好，在 4:3 的投影機上就會被蓋住。
+   * 要避開 QR 的版面問這個，不要自己猜。
+   */
+  qrLeft(): number;
+
+  /** 左上角 HUD（關卡名）的下緣在畫布上的 y。要避開它的版面問這個。 */
+  hudBottom(): number;
 }
 
 export interface Game {
@@ -40,6 +59,16 @@ export interface Game {
    * 右上角那一塊 —— 地理達人的地圖就整個被蓋住。
    */
   readonly hideQr?: boolean;
+
+  /**
+   * 卡通主題（主視覺 group.png 的天空草地風格）。
+   * 這種關卡要自己把整個背景畫滿，HUD 也會換成亮底用的樣式。
+   * 沒標的關卡維持深色底 —— 它們的文字色都是照深底挑的。
+   */
+  readonly cartoon?: boolean;
+
+  /** 這一關放哪一首背景音樂。沒寫就是遊戲中的那首。 */
+  readonly bgm?: BgmStyle;
 
   /** 進到這一關。負責把 field 重設、把第一句提示 publish 出去。 */
   enter(ctx: GameContext): void;
