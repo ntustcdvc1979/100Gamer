@@ -8,7 +8,7 @@
 
    畫面依 state.control 換：
      （沒填）  什麼都不顯示，只有一句提示。搖桿不是預設值。
-     joystick  虛擬搖桿
+     joystick  虛擬搖桿（等待大廳也是：帶自己的皮克敏散步，搖一搖打招呼）
      camera    拍照找顏色 —— 可以重拍，只能上傳一次
      motion    火候達人 —— 依 gesture 分三種畫面：動作鈕（翻面／提起／晃動）、
                烤箱焗烤的開燈鈕、端湯的碗
@@ -302,6 +302,15 @@ function startPlaying(room: Room, name: string, team: TeamId, motionOk: FlipSupp
   let torchRoundKey = "";
   /** 目前顯示中的 pane。換 pane 要連 gesture 一起看，不能只看 control。 */
   let shownPane: keyof typeof panes = "idle";
+  /** 現在是哪一關（大廳的搖桿要多送搖動數，讓投影幕上的皮克敏打招呼） */
+  let game = "";
+  /* 大廳的「打招呼」鈕：每按一下當作搖了幾下。
+     跟感測器的搖動數加在一起送 —— 投影幕只看「有沒有變多」。 */
+  let greetTaps = 0;
+  const waveBtn = $<HTMLButtonElement>("waveBtn");
+  waveBtn.addEventListener("click", () => {
+    greetTaps += 3;
+  });
 
   /* ---------- 感應器狀態（火候達人與搖動都看這一格）---------- */
   const sensorEl = $("sensor");
@@ -611,6 +620,11 @@ function startPlaying(room: Room, name: string, team: TeamId, motionOk: FlipSupp
       swiper.setActive(false);
     }
     control = next;
+    game = s?.game ?? "";
+    const lobby = control === "joystick" && game === "lobby";
+    waveBtn.hidden = !lobby;
+    // 大廳用「搖」的門檻（前一關拔蘿蔔可能把它設成「拉」）
+    if (lobby) shaker.setMode("shake");
 
     // 感應器那一格只有用得到的關卡才顯示。
     // 拔河改成用滑的之後就不吃感測器了，那一關不用再嚇人。
@@ -799,7 +813,7 @@ function startPlaying(room: Room, name: string, team: TeamId, motionOk: FlipSupp
       });
       $("padHint").textContent = "往你的選擇推";
     } else {
-      $("padHint").textContent = "按住並移動";
+      $("padHint").textContent = game === "lobby" ? "按住拖曳，帶你的皮克敏散步" : "按住並移動";
     }
   });
 
@@ -812,7 +826,8 @@ function startPlaying(room: Room, name: string, team: TeamId, motionOk: FlipSupp
     lastFrame = now;
 
     if (control === "joystick") {
-      room.pushInput([stick.value[0], stick.value[1]]);
+      // 大廳多送搖動累計數：投影幕看到它變多，就讓你的皮克敏揮手
+      room.pushInput([stick.value[0], stick.value[1]], game === "lobby" ? shaker.count + greetTaps : undefined);
     } else if (control === "shake") {
       // 拔河吃的是滑動，另外兩關吃的是感測器。兩邊都是累計值。
       const raw = gesture === "swipe" ? swiper.count : shaker.count;

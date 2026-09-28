@@ -23,7 +23,7 @@ import { clearPropCache } from "./three/props";
 import { createSurface } from "./canvas";
 import { Field } from "./render";
 import { createGames, type Game, type GameContext } from "./games";
-import { TEAMS } from "../shared/teams";
+import { TEAMS, TEAM_IDS } from "../shared/teams";
 import type { Player, ScoreRow } from "../net/schema";
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -329,6 +329,8 @@ async function main(): Promise<void> {
      就看得到，判斷那台電腦跑不跑得動用的。 */
   const perf = { frameMs: 0 };
   (window as unknown as { __p100perf: typeof perf }).__p100perf = perf;
+  // 除錯用：開發者工具裡打 __p100field.actors 就看得到每個人的搖桿、搖動數
+  (window as unknown as { __p100field: typeof field }).__p100field = field;
 
   function frame(now: number): void {
     const dt = Math.min((now - last) / 1000, 0.1);
@@ -355,9 +357,13 @@ async function main(): Promise<void> {
   requestAnimationFrame(frame);
 
   /** 全場總排行榜。主控台按一下就蓋上來，是頒獎的那個畫面。 */
+  /** L 鍵的覆蓋層：只排四個隊伍（個人分數在主控台的計分表） */
   function drawLeaderboard(): void {
     const { ctx: g, w, h, unit } = surface;
-    const rows = scoreRows().filter((r) => r.total > 0).slice(0, 10);
+    const totals: Record<string, number> = {};
+    for (const id of TEAM_IDS) totals[id] = 0;
+    for (const r of scoreRows()) totals[r.team] = (totals[r.team] ?? 0) + r.total;
+    const rows = [...TEAM_IDS].sort((x, y) => (totals[y] ?? 0) - (totals[x] ?? 0));
 
     g.fillStyle = "rgba(10,10,14,.93)";
     g.fillRect(0, 0, w, h);
@@ -366,34 +372,29 @@ async function main(): Promise<void> {
     g.textBaseline = "middle";
     g.fillStyle = "#F2A72C";
     g.font = `900 ${Math.round(unit * 8)}px system-ui, "Noto Sans TC", sans-serif`;
-    g.fillText("總排行榜", w / 2, unit * 10);
+    g.fillText("隊伍排行榜", w / 2, unit * 12);
 
-    if (rows.length === 0) {
-      g.fillStyle = "rgba(255,255,255,.5)";
-      g.font = `700 ${Math.round(unit * 4)}px system-ui, "Noto Sans TC", sans-serif`;
-      g.fillText("還沒有人得分", w / 2, h / 2);
-      return;
-    }
-
-    const top = rows[0]?.total || 1;
-    rows.forEach((r, i) => {
-      const y = unit * (22 + i * 7.5);
-      const barW = (w * 0.5) * (r.total / top);
+    const top = Math.max(1, totals[rows[0] ?? "A"] ?? 0);
+    rows.forEach((id, i) => {
+      const y = unit * (32 + i * 14);
+      const barW = w * 0.45 * ((totals[id] ?? 0) / top);
+      const t = TEAMS[id];
 
       g.textAlign = "right";
       g.fillStyle = "rgba(255,255,255,.55)";
-      g.font = `900 ${Math.round(unit * 3.6)}px system-ui, "Noto Sans TC", sans-serif`;
-      g.fillText(`${i + 1}`, w * 0.2, y);
+      g.font = `900 ${Math.round(unit * 6)}px system-ui, "Noto Sans TC", sans-serif`;
+      g.fillText(`${i + 1}`, w * 0.14, y);
 
       g.textAlign = "left";
       g.fillStyle = "#FFFFFF";
-      g.fillText(r.name, w * 0.22, y);
+      g.font = `900 ${Math.round(unit * 4.4)}px system-ui, "Noto Sans TC", sans-serif`;
+      g.fillText(`${t.name}・${t.pikmin}`, w * 0.16, y);
 
-      g.fillStyle = TEAMS[r.team].color;
-      g.fillRect(w * 0.4, y - unit * 1.6, barW, unit * 3.2);
+      g.fillStyle = t.color;
+      g.fillRect(w * 0.42, y - unit * 3, Math.max(unit, barW), unit * 6);
 
       g.fillStyle = "#FFFFFF";
-      g.fillText(`${r.total}`, w * 0.4 + barW + unit * 1.5, y);
+      g.fillText(`${totals[id] ?? 0}`, w * 0.42 + Math.max(unit, barW) + unit * 2, y);
     });
   }
 

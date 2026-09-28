@@ -38,6 +38,8 @@ export interface Pose3D {
   idle?: number;
   /** 慶祝（舉手歡呼或揮手，照個體決定是哪一種） */
   celebrate?: boolean;
+  /** 打招呼：一定是舉手揮動（大廳裡玩家搖手機的時候） */
+  greet?: boolean;
   /** 往後仰（拔蘿蔔），弧度，負的是往後 */
   lean?: number;
   /** 兩手往前伸（抓著東西拉） */
@@ -82,6 +84,9 @@ const PETAL: Record<TeamId, string> = {
 
 /** 莖從頭頂長出來的位置（沒戴帽子時） */
 const STEM_BASE = 0.77;
+/** 葉子／花苞／花整組放大多少。原點在莖的尾端，放大不會跟莖分開。
+    投影幕上看的人離得遠，頭上那一撮是分辨「葉、苞、花」唯一的線索，要夠大。 */
+const BLOOM_SCALE = 1.6;
 /** 上半身轉動的支點（腰） */
 const HIP = 0.17;
 
@@ -226,9 +231,9 @@ function buildRig(team: TeamId): Rig {
   const mkArm = (x: number): THREE.Group => {
     const g = new THREE.Group();
     g.position.set(x, 0.3, 0);
-    g.add(limb(0.014, 0.12, limbMat));
+    g.add(limb(0.014, 0.14, limbMat));
     const hand = new THREE.Mesh(handGeo, limbMat);
-    hand.position.y = -0.165;
+    hand.position.y = -0.185;
     g.add(hand);
     body.add(g);
     return g;
@@ -320,6 +325,7 @@ function buildRig(team: TeamId): Rig {
   const leafG = new THREE.Group();
   leafG.position.copy(tip);
   leafG.rotation.set(0.35, 0, 0.3);
+  leafG.scale.setScalar(BLOOM_SCALE);
   leafG.add(new THREE.Mesh(leafGeometry(), green));
   const vein = new THREE.Mesh(new THREE.CylinderGeometry(0.0028, 0.0018, 0.17, 6), stemMat);
   vein.rotation.z = Math.PI / 2;
@@ -331,6 +337,7 @@ function buildRig(team: TeamId): Rig {
   const budG = new THREE.Group();
   budG.position.copy(tip);
   budG.rotation.z = -0.7;
+  budG.scale.setScalar(BLOOM_SCALE);
   const bud = new THREE.Mesh(budGeometry(), petal);
   budG.add(bud);
   for (let k = 0; k < 3; k++) {
@@ -347,6 +354,7 @@ function buildRig(team: TeamId): Rig {
   const flowerG = new THREE.Group();
   flowerG.position.copy(tip);
   flowerG.rotation.set(1.1, 0, 0.2);
+  flowerG.scale.setScalar(BLOOM_SCALE);
   for (let k = 0; k < 5; k++) {
     const a = (k / 5) * Math.PI * 2;
     const p = new THREE.Mesh(new THREE.SphereGeometry(0.042, 16, 10), petal);
@@ -444,15 +452,19 @@ function poseTargets(p: Pose3D, face: 1 | -1, out: Float32Array): Extra {
     out[AR_X] = -1.25; out[AR_Z] = 0.15;
   }
   if (p.carry) {
-    // 兩手舉高過頭，扛著東西
-    out[AL_X] = 0; out[AL_Z] = -2.75 + swing * 0.08;
-    out[AR_X] = 0; out[AR_Z] = 2.75 + swing * 0.08;
+    // 兩手舉高扛著東西（往外張一點：頭太大，直直往上舉手會整隻埋進頭裡）
+    out[AL_X] = -0.3; out[AL_Z] = -2.3 + swing * 0.08;
+    out[AR_X] = -0.3; out[AR_Z] = 2.3 + swing * 0.08;
   }
 
   let act: Act = "none";
   let e = 0;
   let u = 0;
-  if (p.celebrate) {
+  if (p.greet) {
+    act = "wave";
+    e = 1;
+    u = sec + (key % 13) * 0.21;
+  } else if (p.celebrate) {
     // 慶祝：一半的皮克敏雙手舉高歡呼，一半的用力揮手
     act = key % 2 === 0 ? "cheer" : "wave";
     e = 1;
@@ -468,9 +480,10 @@ function poseTargets(p: Pose3D, face: 1 | -1, out: Float32Array): Extra {
   };
   switch (act) {
     case "wave":
-      // 右手舉起來左右揮，另一手自然垂著，身體跟著晃一點
-      mix(AR_Z, 2.45 + Math.sin(u * tau * 1.8) * 0.38);
-      mix(AR_X, -0.3);
+      // 右手舉起來左右揮，另一手自然垂著，身體跟著晃一點。
+      // 手往外、往前舉 —— 皮克敏的頭很大，手直直往上舉會埋進頭裡看不見
+      mix(AR_Z, 2.05 + Math.sin(u * tau * 1.8) * 0.32);
+      mix(AR_X, -0.55);
       mix(U_RZ, -0.06 + Math.sin(u * tau * 1.8) * 0.03);
       break;
     case "look":
@@ -486,15 +499,15 @@ function poseTargets(p: Pose3D, face: 1 | -1, out: Float32Array): Extra {
     case "cheer": {
       // 雙手舉高上下晃，小小跳著
       const b = Math.sin(u * tau * 2);
-      mix(AL_Z, -2.55 + b * 0.22); mix(AR_Z, 2.55 - b * 0.22);
-      mix(AL_X, -0.15); mix(AR_X, -0.15);
+      mix(AL_Z, -2.1 + b * 0.2); mix(AR_Z, 2.1 - b * 0.2);
+      mix(AL_X, -0.45); mix(AR_X, -0.45);
       hop = Math.abs(Math.sin(u * Math.PI * 4)) * 0.035 * e;
       break;
     }
     case "stretch":
       // 伸懶腰：雙手往上伸直、身體往後仰、眼睛瞇起來
-      mix(AL_Z, -2.95); mix(AR_Z, 2.95);
-      mix(AL_X, 0.15); mix(AR_X, 0.15);
+      mix(AL_Z, -2.25); mix(AR_Z, 2.25);
+      mix(AL_X, -0.2); mix(AR_X, -0.2);
       mix(U_RX, -0.2);
       blink = Math.max(blink, 0.85 * e);
       break;
@@ -508,8 +521,8 @@ function poseTargets(p: Pose3D, face: 1 | -1, out: Float32Array): Extra {
     }
     case "scratch":
       // 抓頭：右手舉到頭側邊來回抓，頭歪一邊
-      mix(AR_Z, 2.25);
-      mix(AR_X, -0.95 + Math.sin(u * tau * 4) * 0.14);
+      mix(AR_Z, 1.9);
+      mix(AR_X, -1.0 + Math.sin(u * tau * 4) * 0.14);
       mix(U_RZ, 0.12);
       break;
     case "tilt":

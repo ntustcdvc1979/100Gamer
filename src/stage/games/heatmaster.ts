@@ -37,7 +37,7 @@
 import type { PlayerAction } from "../../net/schema";
 import { DISPLAY_ORDER, TEAMS } from "../../shared/teams";
 import {
-  bowlSprite, cabbageBitSprite, foodSprite, fryerSprite, ovenSprite, panSprite, shakerSprite, wokSprite,
+  bowlSprite, cabbageBitSprite, carrotSliceSprite, foodSprite, fryerSprite, ovenSprite, panSprite, shakerSprite, wokSprite,
 } from "../three/props";
 import { bigText, card, flushPikmin, font, pikmin, roundRect, scenery, shade, woodSign } from "../cartoon";
 import type { Game, GameContext } from "./types";
@@ -714,7 +714,7 @@ function drawAction(g: CanvasRenderingContext2D, d: Dish, food: string, u: numbe
     }
 
     case "toss": {
-      /* 炒高麗菜：炒鍋前後甩，葉子一片一片飛起來再落回鍋裡 */
+      /* 炒高麗菜：炒鍋前後甩，葉子和胡蘿蔔片一片一片飛起來再落回鍋裡 */
       const P = 1.1;
       const p = (u % P) / P;
       const swing = Math.sin(p * tau);
@@ -725,7 +725,12 @@ function drawAction(g: CanvasRenderingContext2D, d: Dish, food: string, u: numbe
         const spread = (k - 3.5) * rr * 0.1;
         const x = cx + spread * (0.5 + q * 1.1);
         const y = oy - 4 * q * (1 - q) * rr * (0.45 + ((k * 7) % 5) * 0.07);
-        sprite(g, cabbageBitSprite(256, k % 4), x, y, rr * 0.6, q * tau * (k % 2 ? 0.8 : -0.8));
+        // 每三片裡有一片是胡蘿蔔
+        if (k % 3 === 1) {
+          sprite(g, carrotSliceSprite(128), x, y, rr * 0.34, q * tau * 1.2);
+        } else {
+          sprite(g, cabbageBitSprite(256, k % 4), x, y, rr * 0.6, q * tau * (k % 2 ? 0.8 : -0.8));
+        }
       }
       break;
     }

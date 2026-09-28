@@ -42,12 +42,12 @@ const $ = <T extends HTMLElement>(id: string): T =>
 const GAMES = [
   // ---- 這一場的流程，照順序按 → 就對了 ----
   // 大廳沒有「開始」也沒有「暫停」：它是開場等人的畫面
-  { id: "lobby", title: "等待大廳", note: "開場・掃 QR 選皮克敏", pause: false, start: false },
+  { id: "lobby", title: "等待大廳", note: "開場・掃 QR 選皮克敏・手機搖桿散步", pause: false, start: false },
   { id: "geo", title: "地理達人", note: "個人賽・點地圖・30 秒", pause: false },
   { id: "shakecarrot", title: "拔蘿蔔", note: "分組對抗・拉手機・1 分鐘", pause: true },
   { id: "shakerun", title: "熱血賽跑", note: "團體賽・搖手機・1 分鐘", pause: true },
   { id: "heatmaster", title: "火候達人", note: "個人賽・八道菜", pause: true },
-  { id: "finale", title: "總排行榜", note: "頒獎・一個一個揭曉", pause: true },
+  { id: "finale", title: "總排行榜", note: "頒獎・四隊一隊一隊揭曉", pause: true },
   // ---- 這次沒排的（還是舊的深色畫面）----
   { id: "gather", title: "聚沙成塔", note: "全體協作・搖桿", pause: false, start: false, extra: true },
   { id: "tugofwar", title: "四方拔河", note: "分組對抗・搖桿", pause: true, extra: true },

@@ -397,6 +397,8 @@ export interface PikminPose {
   lean?: number;
   /** 慶祝：舉手歡呼或揮手（每一隻自己決定是哪一種），手是慢慢舉起來的 */
   wave?: boolean;
+  /** 舉手揮一揮打招呼（大廳裡搖手機） */
+  greet?: boolean;
   /** 頭上長什麼：0 葉子、1 花苞、2 花。沒給就照 phase 隨機固定一種 */
   bloom?: 0 | 1 | 2;
   /** 戴廚師帽（火候達人） */
@@ -432,6 +434,7 @@ export function pikmin(
       walk: walk > 0 ? t / (520 - walk * 240) : undefined,
       idle: t / 2400,
       celebrate: pose.wave,
+      greet: pose.greet,
       key,
       time: pose.t,
       bloom: pose.bloom ?? ((key % 3) as 0 | 1 | 2),

@@ -233,6 +233,28 @@ export function shakerSprite(px: number): HTMLCanvasElement | null {
   });
 }
 
+/** 一片胡蘿蔔：橘色圓片，中間一圈比較淡的芯，邊緣有一點點厚度 */
+function carrotSlice(): THREE.Group {
+  const g = new THREE.Group();
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.058, 0.016, 24), toy("#F2701A", { rough: 0.4, coat: 0.5 }));
+  g.add(disc);
+  const core = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.018, 18), toy("#F9A24C", { rough: 0.45, coat: 0.4 }));
+  g.add(core);
+  return g;
+}
+
+/** 單獨一片胡蘿蔔（炒的時候跟著高麗菜一起飛起來） */
+export function carrotSliceSprite(px: number): HTMLCanvasElement | null {
+  return snap(`carrotslice|${px}`, px, () => {
+    const g = new THREE.Group();
+    const m = carrotSlice();
+    m.scale.setScalar(5);
+    m.rotation.set(0.9, 0, 0.2);
+    g.add(m);
+    return { obj: g, camera: cam(3, 0.4, 0) };
+  });
+}
+
 /** 一片高麗菜葉（炒的時候拋到空中那種），第 i 種形狀 */
 export function cabbageBitSprite(px: number, i: number): HTMLCanvasElement | null {
   return snap(`cabbit|${px}|${i}`, px, () => {
@@ -472,6 +494,15 @@ export function wokSprite(px: number, heat: number): HTMLCanvasElement | null {
         : new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.012, 12), garlic);
       m.position.set(Math.cos(a) * rr, y, Math.sin(a) * rr);
       m.rotation.set(Math.PI / 2 + (r() - 0.5) * 0.8, 0, r() * 3);
+      g.add(m);
+    }
+    // 胡蘿蔔片：大部分平躺在菜上，幾片斜插在葉子之間
+    for (let k = 0; k < 11; k++) {
+      const rr = Math.sqrt(r()) * 0.46;
+      const a = r() * Math.PI * 2;
+      const m = carrotSlice();
+      m.position.set(Math.cos(a) * rr, heap(rr) + 0.02, Math.sin(a) * rr);
+      m.rotation.set((r() - 0.5) * 0.9, r() * 3, (r() - 0.5) * 0.9);
       g.add(m);
     }
     g.rotation.y = -0.15;

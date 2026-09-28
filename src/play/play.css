@@ -50,6 +50,7 @@
   transition: transform .05s linear;
 }
 .padHint { margin: 0; font-size: 1rem; opacity: .65; pointer-events: none; }
+.waveBtn { margin-top: .75rem; margin-bottom: 2.4rem; } /* 右下角有「已連線」的小標，別被它蓋住 */
 
 /* 現在要幹嘛。這一行是後排唯一的資訊來源，所以要大。 */
 .say {

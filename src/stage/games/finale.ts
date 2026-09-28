@@ -2,62 +2,73 @@
    最後一關：總排行榜
 
    跟 L 鍵那個覆蓋層不一樣。覆蓋層是主持人中途想看一眼用的，
-   這一關是**頒獎**：會從第十名往上一個一個跳出來，最後停在冠軍。
+   這一關是**頒獎**：四個隊伍從第四名往上一個一個揭曉，最後停在冠軍。
+
+   只排隊伍，不排個人。
+   這是四象星座的團體活動，頒獎台上站的是「火象、土象、水象、風象」，
+   不是某一個人 —— 投影幕上列出個人前十名，只會讓沒上榜的九十個人覺得
+   「跟我沒關係」。個人分數主持人在主控台的計分表還看得到。
 
    為什麼要做成一個關卡而不是只留覆蓋層：
    覆蓋層是「蓋在目前這一關上面」，底下還在跑遊戲；頒獎需要一個
    乾淨的、可以停很久讓大家拍照的畫面，而且主持人要能用同一套
    →／T 操作它，不能是一個要記得按的隱藏快捷鍵。
 
-   分數是跨關卡的總分（Actor.total + 這一關的 score），
-   跟主控台計分表看到的是同一份。
+   分數是跨關卡的總分（Actor.total + 這一關的 score）的隊伍加總。
    ============================================================ */
 
 import { TEAMS, TEAM_IDS, type TeamId } from "../../shared/teams";
 import { bigText, createConfetti, flushPikmin, font, pikmin, scenery, shade } from "../cartoon";
 import type { Game, GameContext } from "./types";
 
-const SHOW = 10;
-/** 每隔多久揭曉下一名 */
-const STEP_MS = 900;
+/** 每隔多久揭曉下一隊 */
+const STEP_MS = 1600;
+/** 柱子從地面升到定位要多久 */
+const RISE_MS = 900;
 
 export function createFinaleGame(): Game {
+  /** 已經揭曉了幾隊（從最後一名開始算） */
   let revealedCount = 0;
   let lastStep = 0;
   let running = false;
   /** 進到這一關時凍結一份名次，之後不再變 —— 頒獎到一半名次跳動很難看 */
-  let frozen: { uid: string; name: string; team: TeamId; total: number }[] = [];
+  let ranked: TeamId[] = [];
   let teamTotals: Record<string, number> = {};
+  /** 每一隊（照名次）是什麼時候揭曉的，柱子要從那一刻開始往上長 */
+  const revealedAt: number[] = [];
   const confetti = createConfetti();
   let lastDraw = 0;
   /** 冠軍揭曉過了沒（放一次號角就好） */
   let crowned = false;
 
   function snapshot(ctx: GameContext): void {
-    frozen = [...ctx.field.actors.entries()]
-      .map(([uid, a]) => ({ uid, name: a.name, team: a.team, total: a.total + a.score }))
-      .filter((r) => r.total > 0)
-      .sort((a, b) => b.total - a.total);
-
     teamTotals = {};
     for (const id of TEAM_IDS) teamTotals[id] = 0;
-    for (const r of frozen) teamTotals[r.team] = (teamTotals[r.team] ?? 0) + r.total;
+    for (const a of ctx.field.actors.values()) {
+      teamTotals[a.team] = (teamTotals[a.team] ?? 0) + a.total + a.score;
+    }
+    ranked = [...TEAM_IDS].sort((a, b) => (teamTotals[b] ?? 0) - (teamTotals[a] ?? 0));
+  }
+
+  function reset(ctx: GameContext): void {
+    running = false;
+    revealedCount = 0;
+    revealedAt.length = 0;
+    crowned = false;
+    confetti.clear();
+    snapshot(ctx);
   }
 
   return {
     id: "finale",
     title: "總排行榜",
-    brief: "頒獎。T 開始一個一個揭曉，R 重來。這一關的分數是跨關卡累計的總分。",
+    brief: "頒獎。T 開始從第四名往上一隊一隊揭曉，R 重來。分數是各隊跨關卡累計的總分。",
     hideQr: true,
     cartoon: true,
     bgm: "award",
 
     enter(ctx) {
-      running = false;
-      revealedCount = 0;
-      crowned = false;
-      confetti.clear();
-      snapshot(ctx);
+      reset(ctx);
       ctx.publish({
         phase: "result",
         game: "finale",
@@ -71,20 +82,21 @@ export function createFinaleGame(): Game {
 
     step(_dt, now, ctx) {
       if (!running) return;
-      const target = Math.min(SHOW, frozen.length);
-      if (revealedCount >= target) {
+      if (revealedCount >= ranked.length) {
         running = false;
         return;
       }
       if (now - lastStep >= STEP_MS) {
         lastStep = now;
         revealedCount++;
-        if (revealedCount >= target && !crowned) {
+        // 揭曉的是名次 ranked.length - revealedCount（第四名、第三名…）
+        revealedAt[ranked.length - revealedCount] = now;
+        if (revealedCount >= ranked.length && !crowned) {
           // 冠軍跳出來：號角、歡呼、彩帶
           crowned = true;
           ctx.sfx("fanfare");
           setTimeout(() => ctx.sfx("cheer"), 600);
-          confetti.burst(0.5, 0.25, 220, now);
+          confetti.burst(0.5, 0.25, 260, now);
         } else {
           ctx.sfx("pop");
         }
@@ -99,73 +111,43 @@ export function createFinaleGame(): Game {
 
       bigText(g, "總排行榜", w / 2, unit * 8, unit * 7, "#E07B00");
 
-      if (frozen.length === 0) {
-        bigText(g, "還沒有人得分", w / 2, h / 2, unit * 4, "#4A5570");
-        return;
-      }
-
-      const shown = frozen.slice(0, Math.min(SHOW, frozen.length));
-      const top = shown[0]?.total || 1;
-
-      // 從最後一名往上揭曉：已揭曉的是排名尾端那幾個
-      const firstVisible = shown.length - revealedCount;
-
-      shown.forEach((r, i) => {
-        if (i < firstVisible) return;
-        /* 行距壓到 4.6：下面要留出頒獎台的高度。
-           個人榜擠一點沒關係，它是一條一條揭曉的，
-           但頒獎台被切掉的話這一關就沒有結尾了。 */
-        const y = unit * 15 + i * unit * 4.6;
-        const barW = w * 0.42 * (r.total / top);
-        const fresh = i === firstVisible;
-
-        g.textAlign = "right";
-        g.fillStyle = i === 0 ? "#E07B00" : "#4A5570";
-        g.font = font(unit * 3.4);
-        g.fillText(`${i + 1}`, w * 0.2, y);
-
-        g.textAlign = "left";
-        g.fillStyle = "#1E3A7A";
-        // 剛跳出來的那一名閃一下，眼睛才知道要看哪裡
-        g.globalAlpha = fresh ? 0.6 + 0.4 * Math.sin(now / 90) : 1;
-        g.fillText(r.name, w * 0.22, y);
-        g.globalAlpha = 1;
-
-        g.fillStyle = TEAMS[r.team].color;
-        g.fillRect(w * 0.42, y - unit * 1.5, barW, unit * 3);
-
-        g.fillStyle = "#1E3A7A";
-        g.font = font(unit * 3);
-        g.fillText(`${r.total}`, w * 0.42 + barW + unit * 1.5, y);
-      });
-
-      /* ---- 隊伍總分：頒獎台 ----
+      /* ---- 四隊的頒獎台 ----
          用高度而不是左右的長條。四根柱子站在同一條地面上，
          誰高誰矮不用讀數字就看得出來 —— 這是頒獎那一刻要的效果。
-         而且排法照名次：第二名在左、第一名在中間、第三名在右，
-         就是真的頒獎台的樣子。個人第一名不一定在冠軍隊，所以兩個都要有。 */
-      const ground = h - unit * 4;
+         排法照真的頒獎台：第二名在左、第一名在中間偏左、第三名在右、第四名最右。
+         柱子最高拉到畫面快一半，站在上面的皮克敏和分數才不會擠在一起。 */
+      const ground = h - unit * 5;
       const teamTop = Math.max(1, ...TEAM_IDS.map((id) => teamTotals[id] ?? 0));
-      const ranked = [...TEAM_IDS].sort((a, b) => (teamTotals[b] ?? 0) - (teamTotals[a] ?? 0));
-      // 名次 → 左右位置。0=第一名放中間偏左，1=第二名放最左…
-      const order = [ranked[1], ranked[0], ranked[2], ranked[3]];
-      /** 柱子最高可以多高。上面還要留名字和分數的位置。 */
-      const maxBar = unit * 15;
+      /** 名次 → 左右位置 */
+      const order = [1, 0, 2, 3];
+      /** 柱子最高可以多高。上面還要留皮克敏、分數和隊名的位置。 */
+      const maxBar = h * 0.46;
+      const cw = w * 0.16;
+      const gap = unit * 3.5;
 
       g.textAlign = "center";
-      order.forEach((id, i) => {
+      order.forEach((rank, slot) => {
+        const id = ranked[rank];
         if (!id) return;
         const t = teamTotals[id] ?? 0;
-        const cw = w * 0.13;
-        const cx = w / 2 + (i - 1.5) * (cw + unit * 3);
+        const cx = w / 2 + (slot - 1.5) * (cw + gap);
         const bx = cx - cw / 2;
-        const bh = Math.max(unit * 2, maxBar * (t / teamTop));
-        const first = id === ranked[0] && t > 0;
+        const shown = revealedAt[rank] !== undefined;
+        // 還沒揭曉的：只留一塊矮矮的台座和一個問號
+        const rise = shown ? easeOut(Math.min(1, (now - (revealedAt[rank] ?? now)) / RISE_MS)) : 0;
+        const full = Math.max(unit * 5, maxBar * (t / teamTop));
+        const bh = unit * 3 + (full - unit * 3) * rise;
+        const first = rank === 0 && t > 0 && crowned;
 
         // 柱子：左亮右暗的漸層＋頂面一條亮邊，看起來是有體積的台子，不是一張色塊
         const colGrad = g.createLinearGradient(bx, 0, bx + cw, 0);
-        colGrad.addColorStop(0, TEAMS[id].light ? "#FFFFFF" : shade(TEAMS[id].color, 0.25));
-        colGrad.addColorStop(1, TEAMS[id].light ? "#D5DCE8" : shade(TEAMS[id].color, -0.2));
+        if (shown) {
+          colGrad.addColorStop(0, TEAMS[id].light ? "#FFFFFF" : shade(TEAMS[id].color, 0.25));
+          colGrad.addColorStop(1, TEAMS[id].light ? "#D5DCE8" : shade(TEAMS[id].color, -0.2));
+        } else {
+          colGrad.addColorStop(0, "#C9CFD9");
+          colGrad.addColorStop(1, "#A8B0BE");
+        }
         g.save();
         g.shadowColor = "rgba(0,0,0,.3)";
         g.shadowBlur = unit * 2;
@@ -174,38 +156,52 @@ export function createFinaleGame(): Game {
         g.restore();
         g.fillStyle = "rgba(255,255,255,.45)";
         g.fillRect(bx, ground - bh, cw, Math.min(bh, unit * 0.9));
-        // 風象是白的，柱子邊要加一圈深色，不然會跟深色背景邊界糊掉
-        if (TEAMS[id].light) {
+        // 風象是白的，柱子邊要加一圈深色，不然會跟背景糊掉
+        if (shown && TEAMS[id].light) {
           g.strokeStyle = "rgba(0,0,0,.45)";
           g.lineWidth = Math.max(2, unit * 0.3);
           g.strokeRect(bx, ground - bh, cw, bh);
         }
 
-        // 柱子上站一隻這隊的皮克敏，分數和名字寫在牠頭上
-        const pikH = unit * 10;
-        pikmin(g, cx, ground - bh, pikH, id, { t: now, phase: i, wave: first && crowned });
-        const labelBase = ground - bh - pikH - unit * 0.5;
+        if (!shown) {
+          bigText(g, "？", cx, ground - bh - unit * 5, unit * 6, "#6B7488");
+          return;
+        }
 
+        // 柱子上站兩隻這隊的皮克敏，分數和隊名寫在頭上
+        const pikH = unit * 14;
+        pikmin(g, cx - cw * 0.2, ground - bh, pikH, id, { t: now, phase: rank * 2, wave: first, face: 1 });
+        pikmin(g, cx + cw * 0.2, ground - bh, pikH, id, { t: now, phase: rank * 2 + 1, wave: first, face: -1 });
+        const labelBase = ground - bh - pikH - unit * 1.5;
+
+        // 分數跟著柱子一起數上去
         g.textBaseline = "bottom";
         g.fillStyle = first ? "#E07B00" : "#1E3A7A";
-        g.font = font(unit * 3.6);
-        g.fillText(String(t), cx, labelBase - unit * 4.2);
+        g.font = font(unit * 4.4);
+        g.fillText(String(Math.round(t * rise)), cx, labelBase - unit * 4.4);
         // 白色、黃色的字直接寫在天空上看不清楚，用描邊字、顏色壓深一點
-        bigText(g, TEAMS[id].pikmin, cx, labelBase - unit * 1.6, unit * 2.6, TEAMS[id].light ? "#3A4A66" : shade(TEAMS[id].color, -0.2));
+        bigText(
+          g, `${TEAMS[id].name}・${TEAMS[id].pikmin}`, cx, labelBase - unit * 1.8, unit * 2.8,
+          TEAMS[id].light ? "#3A4A66" : shade(TEAMS[id].color, -0.2),
+        );
 
         // 柱子上寫名次，站上去的感覺才出得來
-        g.textBaseline = "middle";
-        g.fillStyle = TEAMS[id].ink;
-        g.font = font(unit * 4);
-        if (bh > unit * 7) g.fillText(String(ranked.indexOf(id) + 1), cx, ground - bh + unit * 4);
-
+        if (bh > unit * 9) {
+          g.textBaseline = "middle";
+          g.fillStyle = TEAMS[id].ink;
+          g.font = font(unit * 7);
+          g.fillText(String(rank + 1), cx, ground - bh + unit * 6);
+        }
       });
 
       flushPikmin(g);
       confetti.draw(g, w, h, now, dt);
 
       if (revealedCount === 0) {
-        bigText(g, "準備頒獎", w / 2, h * 0.45, unit * 4, "#1E4FB8");
+        bigText(g, "準備頒獎", w / 2, h * 0.3, unit * 4, "#1E4FB8");
+      } else if (crowned) {
+        const champ = ranked[0];
+        if (champ) bigText(g, `冠軍：${TEAMS[champ].name}星座！`, w / 2, unit * 16, unit * 4.2, "#E07B00");
       }
     },
 
@@ -232,14 +228,14 @@ export function createFinaleGame(): Game {
         return true;
       }
       if (e.key === "r" || e.key === "R") {
-        running = false;
-        revealedCount = 0;
-        crowned = false;
-        confetti.clear();
-        snapshot(ctx);
+        reset(ctx);
         return true;
       }
       return false;
     },
   };
+}
+
+function easeOut(x: number): number {
+  return 1 - (1 - x) ** 3;
 }
