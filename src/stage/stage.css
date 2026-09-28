@@ -98,3 +98,7 @@ body.noHud .hud { display: none; }
   font-weight: 700;
 }
 .soundHint[hidden] { display: none; }
+
+/* 卡通畫面上，右下角的連線狀態縮小一點、淡一點：它是給主持人瞄一眼用的，
+   不該壓到畫面上的木牌和名次。 */
+body.cartoon .status { transform: scale(.72); transform-origin: bottom right; opacity: .8; }

@@ -18,7 +18,7 @@
 import { GEO_QUESTIONS } from "../../config/geo";
 import { COUNTY_LABELS, countyPaths, distanceKm, geoScore, outlinePath, project, unproject } from "../../shared/taiwan";
 import { DISPLAY_ORDER, TEAMS, TEAM_IDS } from "../../shared/teams";
-import { bigText, card, font, meadow, pikmin, roundRect, shade, sky, timerBadge } from "../cartoon";
+import { bigText, card, font, pikmin, roundRect, scenery, shade, timerBadge } from "../cartoon";
 import { GEO_ROUND_MS as ROUND_MS } from "../../shared/rules";
 import type { Game, GameContext } from "./types";
 
@@ -195,8 +195,7 @@ export function createGeoGame(): Game {
     draw(now, ctx) {
       const { ctx: g, w, h, unit } = ctx.surface;
       const box = mapBox(ctx);
-      sky(g, w, h, now);
-      meadow(g, w, h, h * 0.86, now);
+      scenery(g, w, h, now, "meadow", 0.86);
 
       /* ---- 左欄：題目、照片、倒數 ----
          左欄的寬度就是「畫面左緣到地圖左緣」那一段。照片與文字都夾在

@@ -277,8 +277,7 @@ export async function openRoom(role: Role, opts: OpenOptions = {}): Promise<Room
     },
 
     clearGameState() {
-      // teamCounts 是跨關卡的（手機的選隊畫面一直要看），其他全部丟掉
-      current = { ...emptyState(), teamCounts: current.teamCounts, seq: current.seq };
+      current = { ...emptyState(), seq: current.seq };
     },
 
     async publishStateNow(patch) {

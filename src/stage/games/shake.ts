@@ -18,10 +18,10 @@ import {
   carrot,
   createConfetti,
   font,
-  meadow,
   pikmin,
   roundRect,
-  sky,
+  scenery,
+  shade,
   timerBadge,
   woodSign,
 } from "../cartoon";
@@ -440,8 +440,7 @@ export function createShakeRunGame(): Game {
       const dt = Math.min(0.1, (now - lastDraw) / 1000);
       lastDraw = now;
 
-      sky(g, w, h, now);
-      meadow(g, w, h, h * 0.2, now);
+      scenery(g, w, h, now, "meadow", 0.2);
 
       /* 左邊留一塊寫隊名和步數，右邊留一塊給終點旗。
          角色從 startX 跑到 endX，不繞圈 —— 位置本身就是進度。 */
@@ -452,10 +451,33 @@ export function createShakeRunGame(): Game {
       const top = h * 0.26;
       const bottom = top + laneH * 4;
 
-      // 跑道：一整塊紅土，四條白線分道
-      roundRect(g, startX - unit * 3, top, endX - startX + unit * 8, laneH * 4, unit * 3);
-      g.fillStyle = "#D9784A";
+      // 跑道：一整塊有厚度的紅土，底下露出一截側邊，才像是擺在草地上的一塊跑道
+      const tx = startX - unit * 3;
+      const tw = endX - startX + unit * 8;
+      roundRect(g, tx, top + unit * 1.6, tw, laneH * 4, unit * 3);
+      g.fillStyle = "#8E3F1E";
       g.fill();
+      g.save();
+      g.shadowColor = "rgba(0,0,0,.3)";
+      g.shadowBlur = unit * 2.5;
+      g.shadowOffsetY = unit;
+      roundRect(g, tx, top, tw, laneH * 4, unit * 3);
+      const track = g.createLinearGradient(0, top, 0, top + laneH * 4);
+      track.addColorStop(0, "#EE9464");
+      track.addColorStop(1, "#CC6436");
+      g.fillStyle = track;
+      g.fill();
+      g.restore();
+      // 跑道表面的顆粒
+      g.save();
+      roundRect(g, tx, top, tw, laneH * 4, unit * 3);
+      g.clip();
+      for (let k = 0; k < 220; k++) {
+        g.fillStyle = k % 2 ? "rgba(120,40,10,.18)" : "rgba(255,220,190,.2)";
+        g.fillRect(tx + ((k * 173) % 1000) / 1000 * tw, top + ((k * 419) % 1000) / 1000 * laneH * 4, unit * 0.35, unit * 0.35);
+      }
+      g.restore();
+      roundRect(g, tx, top, tw, laneH * 4, unit * 3);
       g.strokeStyle = "#FFFFFF";
       g.lineWidth = unit * 0.5;
       g.stroke();
@@ -507,9 +529,18 @@ export function createShakeRunGame(): Game {
         // 左邊：隊伍膠囊，寫著皮克敏名稱與步數
         const pw = startX - unit * 6;
         const ph = laneH * 0.7;
+        g.save();
+        g.shadowColor = "rgba(0,0,0,.25)";
+        g.shadowBlur = unit * 1.5;
+        g.shadowOffsetY = unit * 0.5;
         roundRect(g, unit * 2, y - ph / 2, pw - unit * 2, ph, ph / 2);
-        g.fillStyle = t.light ? "#FFFFFF" : t.color;
+        const pill = g.createLinearGradient(0, y - ph / 2, 0, y + ph / 2);
+        pill.addColorStop(0, t.light ? "#FFFFFF" : shade(t.color, 0.25));
+        pill.addColorStop(1, t.light ? "#DDE4EF" : shade(t.color, -0.15));
+        g.fillStyle = pill;
         g.fill();
+        g.restore();
+        roundRect(g, unit * 2, y - ph / 2, pw - unit * 2, ph, ph / 2);
         g.strokeStyle = t.light ? "#B8C0CE" : "#FFFFFF";
         g.lineWidth = unit * 0.45;
         g.stroke();
@@ -532,7 +563,7 @@ export function createShakeRunGame(): Game {
         // 跑者：跑多快腳就擺多快。到終點的舉手歡呼。
         const finished = podium.includes(id);
         const speed = Math.min(1, (rate[id] ?? 0) / 60);
-        pikmin(g, px, y + laneH * 0.42, laneH * 1.05, id, {
+        pikmin(g, px, y + laneH * 0.42, laneH * 1.25, id, {
           t: now, phase: i,
           walk: finished ? 0 : running ? Math.max(0.15, speed) : 0,
           wave: finished,
@@ -809,28 +840,54 @@ export function createShakeCarrotGame(): Game {
       const dt = Math.min(0.1, (now - lastDraw) / 1000);
       lastDraw = now;
 
-      sky(g, w, h, now);
-      meadow(g, w, h, h * 0.42, now);
+      scenery(g, w, h, now, "meadow", 0.42);
 
       /* 田：一大片土，四隊各一塊。
          土面的高度就是「蘿蔔從哪裡冒出來」的那條線。 */
       const soilTop = h * 0.6;
-      const soilGrad = g.createLinearGradient(0, soilTop, 0, h);
-      soilGrad.addColorStop(0, "#9A6436");
-      soilGrad.addColorStop(1, "#6B4222");
-      g.fillStyle = soilGrad;
+      // 田地：一塊有厚度的土床。上緣一道亮邊、往下越來越深，才不會像一張平貼的咖啡色紙
+      g.save();
+      g.shadowColor = "rgba(40,20,5,.45)";
+      g.shadowBlur = unit * 3;
+      g.shadowOffsetY = -unit * 0.5;
       roundRect(g, w * 0.02, soilTop, w * 0.96, h - soilTop + unit * 5, unit * 4);
+      const soilGrad = g.createLinearGradient(0, soilTop, 0, h);
+      soilGrad.addColorStop(0, "#A8703E");
+      soilGrad.addColorStop(0.15, "#8C5A30");
+      soilGrad.addColorStop(1, "#5A3519");
+      g.fillStyle = soilGrad;
       g.fill();
-      // 田壟
-      g.strokeStyle = "rgba(60,30,10,.35)";
-      g.lineWidth = unit * 0.5;
+      g.restore();
+      g.save();
+      roundRect(g, w * 0.02, soilTop, w * 0.96, h - soilTop + unit * 5, unit * 4);
+      g.clip();
+      // 田壟：一條條隆起的土，亮面朝上、暗面朝下
       for (let i = 1; i < 5; i++) {
         const y = soilTop + (h - soilTop) * (i / 5);
-        g.beginPath();
-        g.moveTo(w * 0.04, y);
-        g.lineTo(w * 0.96, y);
-        g.stroke();
+        const ridge = g.createLinearGradient(0, y - unit * 2, 0, y + unit * 1.5);
+        ridge.addColorStop(0, "rgba(190,130,80,0)");
+        ridge.addColorStop(0.5, "rgba(190,130,80,.55)");
+        ridge.addColorStop(1, "rgba(40,20,5,.45)");
+        g.fillStyle = ridge;
+        g.fillRect(w * 0.02, y - unit * 2, w * 0.96, unit * 3.5);
       }
+      // 土粒
+      for (let k = 0; k < 160; k++) {
+        const px = w * 0.03 + ((k * 137) % 1000) / 1000 * w * 0.94;
+        const py = soilTop + unit * 2 + ((k * 373) % 1000) / 1000 * (h - soilTop);
+        g.fillStyle = k % 2 ? "rgba(60,30,10,.35)" : "rgba(200,150,100,.3)";
+        g.beginPath();
+        g.arc(px, py, unit * (0.2 + (k % 3) * 0.12), 0, Math.PI * 2);
+        g.fill();
+      }
+      g.restore();
+      // 上緣的亮邊
+      g.strokeStyle = "rgba(255,220,170,.55)";
+      g.lineWidth = unit * 0.5;
+      g.beginPath();
+      g.moveTo(w * 0.04, soilTop + unit * 0.3);
+      g.lineTo(w * 0.96, soilTop + unit * 0.3);
+      g.stroke();
 
       // 倒數圓章放正中間上方，全場都看得到
       timerBadge(g, w / 2, unit * 12, unit * 7, running ? String(left) : timeUp ? "完" : "準備", now, running && left <= 5);
@@ -841,21 +898,18 @@ export function createShakeCarrotGame(): Game {
         const cx = w * 0.02 + colW * i + colW / 2;
         const n = carrots[id] ?? 0;
 
-        // 還沒拔的蘿蔔葉子，整整齊齊種在田裡
+        // 還沒拔的蘿蔔，整整齊齊種在田壟上：只露出葉子和一點點橘色的頭
         for (let r = 0; r < 3; r++) {
           for (let c = 0; c < 4; c++) {
             const lx = cx - colW * 0.32 + c * colW * 0.21 + (r % 2) * colW * 0.1;
-            const ly = soilTop + unit * 9 + r * unit * 7;
-            g.fillStyle = "#4CAF3A";
-            for (const a of [-0.5, 0, 0.5]) {
-              g.save();
-              g.translate(lx, ly);
-              g.rotate(a + Math.sin(now / 600 + c + r) * 0.08);
-              g.beginPath();
-              g.ellipse(0, -unit * 1.2, unit * 0.45, unit * 1.3, 0, 0, Math.PI * 2);
-              g.fill();
-              g.restore();
-            }
+            const ly = soilTop + (h - soilTop) * ((r + 1) / 5) - unit * 0.4;
+            const sz = unit * (5 + r * 0.8);
+            g.save();
+            g.beginPath();
+            g.rect(lx - sz, ly - sz * 2, sz * 2, sz * 2 + sz * 0.06);
+            g.clip();
+            carrot(g, lx, ly - sz * 0.04, sz, Math.sin(now / 700 + c + r * 2) * 0.05);
+            g.restore();
           }
         }
 
@@ -879,10 +933,12 @@ export function createShakeCarrotGame(): Game {
         g.fill();
 
         // 吉祥物在旁邊使勁拉：越接近拔出來身體越往後仰
-        pikmin(g, cx + colW * 0.2, soilTop + unit * 1, unit * 15, id, {
+        // 雙手往前抓著蘿蔔葉，越接近拔出來身體越往後仰；使力時會抖一下
+        const effort = running ? Math.sin(now / 70 + i) * 0.03 : 0;
+        pikmin(g, cx + colW * 0.2, soilTop + unit * 1, unit * 20, id, {
           t: now, phase: i, face: -1,
-          lean: running ? -0.1 - rise * 0.35 : 0,
-          walk: running ? 0.25 : 0,
+          reach: running,
+          lean: running ? -0.12 - rise * 0.3 + effort : 0,
         });
 
         // 木牌：幾根

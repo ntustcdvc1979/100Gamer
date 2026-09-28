@@ -14,7 +14,7 @@
    ============================================================ */
 
 import { TEAMS, TEAM_IDS, type TeamId } from "../../shared/teams";
-import { bigText, createConfetti, font, meadow, pikmin, shade, sky } from "../cartoon";
+import { bigText, createConfetti, font, pikmin, scenery, shade } from "../cartoon";
 import type { Game, GameContext } from "./types";
 
 const SHOW = 10;
@@ -95,8 +95,7 @@ export function createFinaleGame(): Game {
       const { ctx: g, w, h, unit } = ctx.surface;
       const dt = Math.min(0.1, (now - lastDraw) / 1000);
       lastDraw = now;
-      sky(g, w, h, now);
-      meadow(g, w, h, h * 0.72, now);
+      scenery(g, w, h, now, "meadow", 0.72);
 
       bigText(g, "總排行榜", w / 2, unit * 8, unit * 7, "#E07B00");
 
@@ -151,7 +150,7 @@ export function createFinaleGame(): Game {
       // 名次 → 左右位置。0=第一名放中間偏左，1=第二名放最左…
       const order = [ranked[1], ranked[0], ranked[2], ranked[3]];
       /** 柱子最高可以多高。上面還要留名字和分數的位置。 */
-      const maxBar = unit * 18;
+      const maxBar = unit * 15;
 
       g.textAlign = "center";
       order.forEach((id, i) => {
@@ -163,8 +162,18 @@ export function createFinaleGame(): Game {
         const bh = Math.max(unit * 2, maxBar * (t / teamTop));
         const first = id === ranked[0] && t > 0;
 
-        g.fillStyle = TEAMS[id].color;
+        // 柱子：左亮右暗的漸層＋頂面一條亮邊，看起來是有體積的台子，不是一張色塊
+        const colGrad = g.createLinearGradient(bx, 0, bx + cw, 0);
+        colGrad.addColorStop(0, TEAMS[id].light ? "#FFFFFF" : shade(TEAMS[id].color, 0.25));
+        colGrad.addColorStop(1, TEAMS[id].light ? "#D5DCE8" : shade(TEAMS[id].color, -0.2));
+        g.save();
+        g.shadowColor = "rgba(0,0,0,.3)";
+        g.shadowBlur = unit * 2;
+        g.fillStyle = colGrad;
         g.fillRect(bx, ground - bh, cw, bh);
+        g.restore();
+        g.fillStyle = "rgba(255,255,255,.45)";
+        g.fillRect(bx, ground - bh, cw, Math.min(bh, unit * 0.9));
         // 風象是白的，柱子邊要加一圈深色，不然會跟深色背景邊界糊掉
         if (TEAMS[id].light) {
           g.strokeStyle = "rgba(0,0,0,.45)";
@@ -173,16 +182,16 @@ export function createFinaleGame(): Game {
         }
 
         // 柱子上站一隻這隊的皮克敏，分數和名字寫在牠頭上
-        const pikH = unit * 7;
+        const pikH = unit * 10;
         pikmin(g, cx, ground - bh, pikH, id, { t: now, phase: i, wave: first && crowned });
         const labelBase = ground - bh - pikH - unit * 0.5;
 
         g.textBaseline = "bottom";
         g.fillStyle = first ? "#E07B00" : "#1E3A7A";
         g.font = font(unit * 3.6);
-        g.fillText(String(t), cx, labelBase - unit * 3.5);
+        g.fillText(String(t), cx, labelBase - unit * 4.2);
         // 白色、黃色的字直接寫在天空上看不清楚，用描邊字、顏色壓深一點
-        bigText(g, TEAMS[id].pikmin, cx, labelBase - unit * 1.4, unit * 2.8, TEAMS[id].light ? "#3A4A66" : shade(TEAMS[id].color, -0.2));
+        bigText(g, TEAMS[id].pikmin, cx, labelBase - unit * 1.6, unit * 2.6, TEAMS[id].light ? "#3A4A66" : shade(TEAMS[id].color, -0.2));
 
         // 柱子上寫名次，站上去的感覺才出得來
         g.textBaseline = "middle";

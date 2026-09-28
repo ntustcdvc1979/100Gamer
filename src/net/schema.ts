@@ -86,12 +86,6 @@ export interface RoomState {
    */
   gesture?: "flip" | "lift" | "shake" | "swipe" | "torch" | "tilt";
 
-  /**
-   * 各隊現在幾個人。玩家自己選隊，所以要看得到哪一隊人少。
-   * 四個數字，約 30 bytes，只有人進出時才變。
-   */
-  teamCounts?: number[];
-
   /** 找不同：字陣的亂數種子與行列數。兩邊用同一個種子長出同一張表。 */
   seed?: number;
   rows?: number;
@@ -114,6 +108,12 @@ export interface RoomState {
    * 那個數字必須是他自己的距離，不是全場最近的那個人的。
    */
   answer?: [number, number];
+
+  /**
+   * 主持人切換了連線模式。手機看到這個就要提示大家換過去（連 Wi-Fi、點一下前往）。
+   * playUrl 是新模式下的玩家入口。
+   */
+  netSwitch?: { mode: "A" | "B"; playUrl: string; wifi?: string };
 
   /** 這一輪還收不收（拍照／翻面）。時間到之後手機要自己鎖起來。 */
   accepting?: boolean;
@@ -243,6 +243,12 @@ export type Command =
   | { k: "qr"; on: boolean }
   /** 投影幕的背景音樂與音效開關 */
   | { k: "sound"; bgm: boolean; sfx: boolean }
+  /**
+   * 切換連線模式。A = 各自網路（雲端），B = 區網（現場筆電）。
+   * lan 是區網那台筆電的網址（例如 http://192.168.1.10:8080/），B 才需要。
+   * wifi 是現場 Wi-Fi 的名稱，會顯示在手機上，告訴大家要連哪一個。
+   */
+  | { k: "netMode"; mode: "A" | "B"; lan?: string; wifi?: string }
   /** 把所有人的總分歸零 */
   | { k: "resetScores" }
   /** 把某個人踢出去。伺服器處理，不是投影幕。 */

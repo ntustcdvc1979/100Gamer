@@ -20,7 +20,14 @@ import "./console.css";
 import { AccessDenied, openRoom, type Room } from "../net/room";
 import { DISPLAY_ORDER, TEAMS } from "../shared/teams";
 import type { ScoreRow } from "../net/schema";
-import { resolveWsUrl } from "../net/wsurl";
+import {
+  currentNetMode,
+  normalizeLanBase,
+  PUBLIC_SITE,
+  resolveWsUrl,
+  siteBase,
+  type NetMode,
+} from "../net/wsurl";
 
 const $ = <T extends HTMLElement>(id: string): T =>
   document.getElementById(id) as T;
@@ -279,6 +286,78 @@ async function connect(token?: string, insecure = false): Promise<void> {
      指令會在伺服器那裡蒸發。這是唯一問得到答案的地方。 */
   room.onCommandAck((ack) => {
     if (ack.stages === 0) toast("⚠️ 投影幕不在線上，這個指令沒有人收到");
+    // 切換連線模式：投影幕收到之後，主控台自己也換過去
+    if (ack.k === "netMode" && netTarget) {
+      const go = netTarget;
+      netTarget = null;
+      toast(ack.stages > 0 ? "投影幕正在切換，主控台也跟著過去…" : "投影幕不在線上 —— 主控台先過去，投影幕那台請手動打開新網址");
+      setTimeout(() => location.assign(`${go}console.html`), 2800);
+    }
+  });
+
+  /* ---- 連線模式 ----
+     A 各自網路（預設）：網站在 GitHub Pages、伺服器在 Fly.io。
+     B 區網：網站和伺服器都在現場那台跑 npm run host 的筆電上。
+     切換＝投影幕、主控台、手機都換到另一個網站去開（原因見 net/wsurl.ts）。 */
+  let netTarget: string | null = null;
+  const nowMode = currentNetMode();
+  $("netNow").textContent = nowMode === "B" ? `目前：B 區網（${siteBase()}）` : "目前：A 各自網路";
+  const radios = [...document.querySelectorAll<HTMLInputElement>("input[name=net]")];
+  for (const r of radios) r.checked = r.value === nowMode;
+  const lanInput = $<HTMLInputElement>("netLan");
+  const wifiInput = $<HTMLInputElement>("netWifi");
+  try {
+    lanInput.value = nowMode === "B" ? siteBase() : (localStorage.getItem("p100:lan") ?? "");
+    wifiInput.value = localStorage.getItem("p100:wifi") ?? "";
+  } catch {
+    /* 無痕模式 */
+  }
+  const picked = (): NetMode => (radios.find((r) => r.checked)?.value === "B" ? "B" : "A");
+  const syncNetRow = (): void => {
+    $("netLanRow").hidden = picked() !== "B";
+  };
+  for (const r of radios) r.addEventListener("change", syncNetRow);
+  syncNetRow();
+
+  $("btnNet").addEventListener("click", () => {
+    const mode = picked();
+    if (mode === nowMode) {
+      toast("現在就是這個模式了");
+      return;
+    }
+    const lan = normalizeLanBase(lanInput.value);
+    if (mode === "B" && !lan) {
+      toast("請填區網那台筆電的網址（npm run host 會印出來，例如 192.168.1.10:8080）");
+      return;
+    }
+    const wifi = wifiInput.value.trim();
+    try {
+      if (lan) localStorage.setItem("p100:lan", lan);
+      localStorage.setItem("p100:wifi", wifi);
+    } catch {
+      /* 無痕模式 */
+    }
+    const msg =
+      mode === "B"
+        ? [
+            "切換到 B 區網模式？",
+            "",
+            `投影幕和主控台會換到 ${lan}，玩家要先連上現場 Wi-Fi${wifi ? `「${wifi}」` : ""}，手機上會跳出提示帶他們過去。`,
+            "",
+            "⚠️ 新的那邊是另一台伺服器，目前的分數不會跟過去 —— 請在開場前決定。",
+            "⚠️ 那台筆電要先跑 npm run host，不然投影幕會打不開。",
+          ].join("\n")
+        : [
+            "切換回 A 各自網路模式？",
+            "",
+            "投影幕和主控台會換回雲端網站，玩家手機上會跳出提示帶他們過去（要有網路）。",
+            "",
+            "⚠️ 目前的分數不會跟過去 —— 請在開場前決定。",
+          ].join("\n");
+    if (!confirm(msg)) return;
+    const target = mode === "B" ? (lan as string) : PUBLIC_SITE;
+    if (!cmd({ k: "netMode", mode, lan: lan ?? undefined, wifi: wifi || undefined })) return;
+    netTarget = target;
   });
 
   /* ---- 按鈕 ---- */

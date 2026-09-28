@@ -18,13 +18,14 @@
    所以這不是預設路徑，是「場地網路夠強」或「完全沒有外網」時的選項。
    決定用它之前，務必在現場實測 100 支手機同時連上那個 AP。
 
-   怎麼跑（兩行）：
-     VITE_WS_URL=auto npm run build
+   怎麼跑（一行，會先 build 再開）：
      npm run host
 
-   為什麼 build 要帶 VITE_WS_URL=auto：那個值的意思是「連回這一頁的同一個來源」。
-   現場自架時網址是筆電的區網 IP，build 的當下不會知道，寫死就得每換一個
-   場地重 build 一次。詳見 src/net/wsurl.ts。
+   這就是主控台上的「B 區網模式」。印出來的網址填進主控台的連線模式，
+   按切換，投影幕和大家的手機就會換過來。
+
+   不用特別的 build 設定：網頁從區網位址用 http 載進來的時候，
+   會自動連回同一台（見 src/net/wsurl.ts 的 isLanOrigin）。
    ============================================================ */
 
 import { createServer, request as httpRequest } from "node:http";
@@ -135,7 +136,7 @@ const server = createServer(async (req, res) => {
     res.end(body);
   } catch {
     res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
-    res.end("找不到這個檔案。是不是忘了先跑 VITE_WS_URL=auto npm run build？");
+    res.end("找不到這個檔案。請用 npm run host 啟動（它會先 build）。");
   }
 });
 
@@ -164,13 +165,13 @@ server.on("upgrade", (req, socket, head) => {
 
 server.listen(PORT, () => {
   console.log("=".repeat(60));
-  console.log("  現場自架模式");
+  console.log("  B 區網模式（現場自架）");
   console.log("=".repeat(60));
   console.log(`  投影幕    ${base}/stage.html`);
   console.log(`  玩家入口  ${base}/play.html      ← 做成 QR 貼出去`);
   console.log(`  主控台    ${base}/console.html`);
   console.log("=".repeat(60));
-  console.log("  ⚠️  dist 要用 VITE_WS_URL=auto 建，否則前端會連去 Fly.io。");
+  console.log(`  從 A 模式切過來：主控台「連線模式」選 B，網址填 ${ip}:${PORT}`);
   console.log("  ⚠️  全場要連同一個 Wi-Fi。開場前務必實測 AP 撐不撐得住 100 台。");
   console.log("=".repeat(60));
 });

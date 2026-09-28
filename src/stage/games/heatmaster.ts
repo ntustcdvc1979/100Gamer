@@ -36,7 +36,8 @@
 
 import type { PlayerAction } from "../../net/schema";
 import { DISPLAY_ORDER, TEAMS } from "../../shared/teams";
-import { bigText, card, font, pikmin, roundRect, shade, sky, woodSign } from "../cartoon";
+import { bowlSprite, ovenSprite, panSprite } from "../three/props";
+import { bigText, card, font, pikmin, roundRect, scenery, shade, woodSign } from "../cartoon";
 import type { Game, GameContext } from "./types";
 
 interface Dish {
@@ -70,7 +71,8 @@ const DISHES: Dish[] = [
 ];
 
 /** 鍋子裡每一道菜的顏色（照 DISHES 的順序）。焗烤和端湯各自有道具，不用這裡。 */
-const FOOD = ["#F6D365", "#E9B44C", "#D9C7A0", "#F0A1A1", "#6DBE45", "#E8D9B8"];
+// 3D 算圖會把顏色洗淡一點，這裡的顏色刻意比實物飽和
+const FOOD = ["#F2B21C", "#E39A1E", "#C9A46A", "#EE7C86", "#4FB22E", "#E3C79A"];
 
 /** 誤差幾秒就掉到 0 分 */
 const ZERO_AT = 5;
@@ -187,16 +189,10 @@ export function createHeatMasterGame(): Game {
       const d = dish();
       const elapsed = running ? (now - startedAt) / 1000 : 0;
 
-      // 廚房：暖色的天空當牆，下面一張木頭流理台
-      sky(g, w, h, now, true);
+      // 廚房：3D 拍的磁磚牆、窗戶、吊著的鍋鏟和木頭流理台。
+      // 流理台的檯面在畫面 72% 的高度，戴廚師帽的皮克敏就站在那一條上。
+      scenery(g, w, h, now, "kitchen", 0.72);
       const counterY = h * 0.72;
-      const wood = g.createLinearGradient(0, counterY, 0, h);
-      wood.addColorStop(0, "#C98A52");
-      wood.addColorStop(1, "#9A6232");
-      g.fillStyle = wood;
-      g.fillRect(0, counterY, w, h - counterY);
-      g.fillStyle = "#E3A86C";
-      g.fillRect(0, counterY, w, unit * 1.2);
 
       // 菜名掛在木牌上
       woodSign(g, w / 2, unit * 9, `第 ${index + 1} 道・${d.name}`, unit * 4, unit);
@@ -211,7 +207,54 @@ export function createHeatMasterGame(): Game {
       const rr = Math.min(w, h) * 0.2;
       const doneShare = ctx.field.actors.size > 0 ? acts.size / ctx.field.actors.size : 0;
 
-      if (d.gesture === "torch") {
+      /* 3D 道具：平底鍋／烤箱／湯碗。狀態（熟度、鍋蓋、烤箱亮度、湯剩多少）
+         量化成幾格各拍一次，見 three/props.ts。拿不到 WebGL 就畫下面的 2D 版。 */
+      let soupAvg = 100;
+      if (d.mode === "soup" && acts.size > 0) {
+        let sum = 0;
+        for (const a of acts.values()) sum += a.score;
+        soupAvg = sum / acts.size;
+      }
+      const propImg =
+        d.gesture === "torch"
+          ? ovenSprite(512, running ? 0.15 + doneShare * 0.85 : 0.1)
+          : d.mode === "soup"
+            ? bowlSprite(512, soupAvg / 100)
+            : panSprite(512, FOOD[index] ?? "#F2C94C", heat, index === 2 ? Math.max(0.2, doneShare) : 0, d.gesture === "shake");
+
+      if (propImg) {
+        const S = rr * (d.mode === "soup" ? 3.1 : 3.6);
+        if (d.gesture !== "torch" && d.mode !== "soup" && running) {
+          // 爐火畫在鍋子後面
+          for (let k = 0; k < 9; k++) {
+            const fx = cx - rr * 0.9 + (k / 8) * rr * 1.8;
+            const fh = rr * (0.45 + 0.16 * Math.sin(now / 90 + k * 1.7));
+            const base = cy + rr * 0.72;
+            const fg = g.createLinearGradient(0, base, 0, base - fh);
+            fg.addColorStop(0, "#FF4A12");
+            fg.addColorStop(0.6, "rgba(255,170,40,.8)");
+            fg.addColorStop(1, "rgba(255,230,120,0)");
+            g.fillStyle = fg;
+            g.beginPath();
+            g.moveTo(fx - unit * 1.6, base);
+            g.quadraticCurveTo(fx, base - fh * 1.4, fx + unit * 1.6, base);
+            g.fill();
+          }
+        }
+        g.drawImage(propImg, cx - S / 2, cy - S * 0.52, S, S);
+        if (d.mode === "soup" && running) {
+          // 熱氣
+          g.strokeStyle = "rgba(255,255,255,.75)";
+          g.lineWidth = unit * 0.5;
+          for (const k of [-1, 0, 1]) {
+            g.beginPath();
+            const sx = cx + k * rr * 0.4;
+            g.moveTo(sx, cy - rr * 0.35);
+            g.bezierCurveTo(sx + unit * 2, cy - rr * 0.65, sx - unit * 2, cy - rr * 0.85, sx + Math.sin(now / 300 + k) * unit, cy - rr * 1.15);
+            g.stroke();
+          }
+        }
+      } else if (d.gesture === "torch") {
         /* 烤箱：玻璃窗的亮度 = 已經按下開燈的人的比例。
            全場的手電筒一起亮的時候，投影幕上的烤箱也跟著亮起來。 */
         const ow = rr * 2.4;
@@ -378,7 +421,7 @@ export function createHeatMasterGame(): Game {
       DISPLAY_ORDER.forEach((id, i) => {
         const side = i < 2 ? -1 : 1;
         const px = cx + side * (rr * 1.9 + (i % 2) * unit * 11);
-        pikmin(g, px, counterY + unit * 1, unit * 17, id, {
+        pikmin(g, px, counterY + unit * 1, unit * 22, id, {
           t: now, phase: i, chef: true, face: side === -1 ? 1 : -1,
           wave: !running && acts.size > 0 && i === Math.floor(now / 900) % 4,
         });

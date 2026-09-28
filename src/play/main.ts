@@ -20,7 +20,8 @@
 import "../shared/base.css";
 import "./play.css";
 import { AccessDenied, openRoom, type Room } from "../net/room";
-import { DISPLAY_ORDER, TEAMS, TEAM_IDS, type TeamId } from "../shared/teams";
+import { siteBase } from "../net/wsurl";
+import { DISPLAY_ORDER, TEAMS, type TeamId } from "../shared/teams";
 import { pikminSvg } from "../shared/pikminSvg";
 import { colorScore, fromHex, toHex, type Rgb } from "../shared/color";
 import {
@@ -50,6 +51,10 @@ const joinBtn = $<HTMLButtonElement>("joinBtn");
 const joinHint = $("joinHint");
 const statusEl = $("status");
 const statusText = $("statusText");
+
+/** 加入之後的名字與隊伍。切換連線模式時要帶到新的網址。 */
+let myName = "";
+let myTeam: TeamId | null = null;
 
 function setStatus(ok: boolean, text: string): void {
   statusEl.classList.toggle("on", ok);
@@ -120,8 +125,7 @@ async function main(): Promise<void> {
       `<button type="button" class="teamBtn" data-t="${id}" ` +
       `style="--c:${t.color};--b:${border};--t:${text};--k:${t.ink}">` +
       `<span class="tp">${pikminSvg(id, 44)}</span>` +
-      `<span class="tn">${t.pikmin}</span><span class="tz">${t.name}星座</span>` +
-      `<span class="tc" data-c="${id}">—</span></button>`
+      `<span class="tn">${t.pikmin}</span><span class="tz">${t.name}星座</span></button>`
     );
   }).join("");
 
@@ -135,14 +139,31 @@ async function main(): Promise<void> {
     refresh();
   });
 
-  // 人數顯示：讓大家自己去補人少的隊。沒有這個的話一定會有一隊爆滿。
+  /* ---- 主持人切換連線模式 ----
+     投影幕送出 netSwitch，手機這邊跳出提示：要連哪個 Wi-Fi、點一下前往。
+     不自動跳 —— 還沒連上現場 Wi-Fi 就跳到區網位址，只會看到一個打不開的錯誤頁。
+     名字和隊伍帶在網址後面，到新的那邊不用重打。 */
   room.onState((s) => {
-    const counts = s?.teamCounts ?? [];
-    TEAM_IDS.forEach((id, i) => {
-      const el = teamBox.querySelector(`[data-c="${id}"]`);
-      if (el) el.textContent = `${counts[i] ?? 0} 人`;
-    });
+    const ns = s?.netSwitch;
+    if (!ns || ns.playUrl.startsWith(siteBase())) return;
+    const params = new URLSearchParams();
+    const nm = nameInput.value.trim() || myName;
+    if (nm) params.set("name", nm);
+    const tm = myTeam ?? picked;
+    if (tm) params.set("team", tm);
+    $<HTMLAnchorElement>("nsGo").href = `${ns.playUrl}#${params.toString()}`;
+    $("nsTitle").textContent = ns.mode === "B" ? "換成現場 Wi-Fi 連線" : "換回用自己的網路連線";
+    $("nsText").textContent =
+      ns.mode === "B"
+        ? `請先到手機設定連上現場 Wi-Fi${ns.wifi ? `「${ns.wifi}」` : ""}，連好之後點下面的按鈕。`
+        : "請確定手機有網路（可以關掉現場 Wi-Fi、改用行動網路），然後點下面的按鈕。";
+    $("netSwitch").hidden = false;
   });
+
+
+  // 刻意不顯示各隊人數（投影幕和手機都不顯示）。人數只有主控台看得到 ——
+  // 寫出「火象 3 人、水象 30 人」只會讓人少的那一隊還沒開始就先洩氣。
+  // 真的要平衡隊伍，由主持人看主控台再用嘴巴喊。
 
   const canJoin = (): boolean => nameInput.value.trim().length > 0 && picked !== null;
   const refresh = (): void => {
@@ -151,6 +172,16 @@ async function main(): Promise<void> {
   };
   nameInput.addEventListener("input", refresh);
   refresh();
+
+  // 從另一個模式跳過來的：名字和隊伍已經帶在網址後面了，幫他填好
+  {
+    const hp = new URLSearchParams(location.hash.slice(1));
+    const nm = hp.get("name");
+    const tm = hp.get("team") as TeamId | null;
+    if (nm) nameInput.value = nm;
+    if (tm && tm in TEAMS) teamBox.querySelector<HTMLElement>(`.teamBtn[data-t="${tm}"]`)?.click();
+    if (nm || tm) history.replaceState(null, "", location.pathname + location.search);
+  }
 
   nameInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && canJoin()) joinBtn.click();
@@ -198,6 +229,8 @@ async function join(
     return;
   }
 
+  myName = name;
+  myTeam = team;
   startPlaying(room, name, team, await motionAsk);
 }
 

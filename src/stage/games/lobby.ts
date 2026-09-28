@@ -15,7 +15,7 @@
    ============================================================ */
 
 import { DISPLAY_ORDER, TEAMS, type TeamId } from "../../shared/teams";
-import { bigText, card, font, meadow, pikmin, roundRect, shade, sky, woodSign } from "../cartoon";
+import { bigText, font, pikmin, roundRect, scenery, shade, teamCardBackdrop, woodSign } from "../cartoon";
 import type { Game, GameContext } from "./types";
 
 interface Walker {
@@ -120,8 +120,7 @@ export function createLobbyGame(): Game {
 
     draw(now, ctx) {
       const { ctx: g, w, h, unit } = ctx.surface;
-      sky(g, w, h, now);
-      meadow(g, w, h, h * 0.62, now);
+      scenery(g, w, h, now, "meadow", 0.62);
 
       /* ---- 標題 ----
          置中在 QR 左邊那一塊，不要被右上角的 QR 蓋到。 */
@@ -143,19 +142,18 @@ export function createLobbyGame(): Game {
       DISPLAY_ORDER.forEach((id, i) => {
         const t = TEAMS[id];
         const x = left + i * (cw + gap);
-        const grad = g.createLinearGradient(0, top, 0, top + ch);
-        grad.addColorStop(0, t.light ? "#F4F7FB" : shade(t.color, 0.55));
-        grad.addColorStop(1, t.light ? "#DCE3EE" : shade(t.color, 0.1));
-        card(g, x, top, cw, ch, grad, unit);
-
-        // 隊名
-        bigText(g, `${t.name}星座`, x + cw / 2, top + unit * 4.2, unit * 3.6 * k, t.light ? "#3A4A66" : shade(t.color, -0.35));
+        // 主視覺那樣，每張卡有自己的場景：岩漿、陽光石堆、水面、風
+        teamCardBackdrop(g, x, top, cw, ch, id, now, unit);
 
         // 吉祥物：輪流揮手，才不會四隻一起動得像機器人
         const waving = Math.floor(now / 1800) % 4 === i;
-        pikmin(g, x + cw / 2, top + ch * 0.78, Math.min(ch * 0.58, cw * 1.05), id, {
+        pikmin(g, x + cw / 2, top + ch * 0.8, Math.min(ch * 0.72, cw * 1.25), id, {
           t: now, phase: i * 0.7, wave: waving, face: i < 2 ? 1 : -1,
         });
+
+        // 隊名寫在吉祥物後面，才會壓在葉子和花上面（主視覺也是字在最上層）
+        // 隊名
+        bigText(g, `${t.name}星座`, x + cw / 2, top + unit * 4.2, unit * 3.6 * k, t.light ? "#3A4A66" : shade(t.color, -0.3));
 
         // 皮克敏名稱膠囊
         const pillY = top + ch * 0.86;

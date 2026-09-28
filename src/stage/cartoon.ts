@@ -13,6 +13,9 @@
    ============================================================ */
 
 import { TEAMS, type TeamId } from "../shared/teams";
+import { backdrop, type SceneKind } from "./three/backdrop";
+import { drawPikmin3D } from "./three/pikmin3d";
+import { CARROT_ANCHOR, carrotSprite } from "./three/props";
 
 /** 圓體。主視覺用的是圓圓胖胖的字，粉圓最接近，而且有繁中。 */
 export const FONT = `"Huninn", "Noto Sans TC", system-ui, sans-serif`;
@@ -41,6 +44,58 @@ export function shade(hex: string, amt: number): string {
 /* ------------------------------------------------------------
    背景：天空、雲、草地
    ------------------------------------------------------------ */
+
+/**
+ * 整片背景：3D 拍好的場景（草坡或廚房）＋會動的雲和光點。
+ * horizon = 地平線在畫面的哪個高度（0..1），每一關要的天空和草地比例不一樣。
+ * 拿不到 WebGL 就退回下面的 2D 天空草地。
+ */
+export function scenery(
+  g: CanvasRenderingContext2D,
+  w: number, h: number, t: number,
+  kind: SceneKind,
+  horizon: number,
+): void {
+  const img = backdrop(kind, w, h, horizon);
+  if (!img) {
+    sky(g, w, h, t, kind === "kitchen");
+    if (kind === "meadow") meadow(g, w, h, h * horizon, t);
+    return;
+  }
+  g.drawImage(img, 0, 0, w, h);
+
+  const unit = Math.min(w, h) / 100;
+  if (kind === "meadow") {
+    // 軟軟的雲只飄在天空那一塊
+    g.save();
+    g.globalAlpha = 0.85;
+    g.filter = `blur(${Math.round(unit * 0.6)}px)`;
+    g.fillStyle = "#FFFFFF";
+    const clouds = [[0.08, 0.3, 1.1, 0.01], [0.5, 0.18, 0.8, 0.007], [0.78, 0.4, 1.2, 0.012]];
+    for (const [x0, y0, sz, v] of clouds) {
+      const x = (((x0 as number) + (t / 1000) * (v as number)) % 1.3) - 0.15;
+      cloud(g, x * w, h * horizon * (y0 as number), unit * 6 * (sz as number));
+    }
+    g.restore();
+  }
+  // 飄浮的光點：主視覺上那種柔柔的閃光
+  g.save();
+  for (let i = 0; i < 18; i++) {
+    const k = (i * 97) % 100 / 100;
+    const x = ((k * 1.7 + t / 40000 * (0.5 + k)) % 1) * w;
+    const y = (0.1 + ((i * 53) % 100) / 100 * 0.8) * h + Math.sin(t / 1500 + i) * unit * 1.5;
+    const a = 0.25 + 0.25 * Math.sin(t / 700 + i * 1.7);
+    const r = unit * (0.4 + (i % 3) * 0.3);
+    const grad = g.createRadialGradient(x, y, 0, x, y, r * 3);
+    grad.addColorStop(0, `rgba(255,250,220,${a})`);
+    grad.addColorStop(1, "rgba(255,250,220,0)");
+    g.fillStyle = grad;
+    g.beginPath();
+    g.arc(x, y, r * 3, 0, Math.PI * 2);
+    g.fill();
+  }
+  g.restore();
+}
 
 /** 天空漸層加幾朵慢慢飄的雲。warm = 火候達人的廚房暖色。 */
 export function sky(g: CanvasRenderingContext2D, w: number, h: number, t: number, warm = false): void {
@@ -177,6 +232,25 @@ export function card(
   g.fillStyle = fill;
   g.fill();
   g.restore();
+  glossAndBorder(g, x, y, w, h, unit, border);
+}
+
+/** 卡片上半部的一層亮光＋白邊。主視覺那種壓克力板的質感就是靠這一層。 */
+export function glossAndBorder(
+  g: CanvasRenderingContext2D,
+  x: number, y: number, w: number, h: number,
+  unit: number,
+  border = "#FFFFFF",
+): void {
+  g.save();
+  roundRect(g, x, y, w, h, unit * 3);
+  g.clip();
+  const gloss = g.createLinearGradient(0, y, 0, y + h * 0.45);
+  gloss.addColorStop(0, "rgba(255,255,255,.45)");
+  gloss.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = gloss;
+  g.fillRect(x, y, w, h * 0.45);
+  g.restore();
   roundRect(g, x, y, w, h, unit * 3);
   g.strokeStyle = border;
   g.lineWidth = unit * 0.7;
@@ -247,16 +321,29 @@ export function bigText(
   g.textAlign = align;
   g.textBaseline = "middle";
   g.lineJoin = "round";
+  // 三層：最外面一圈深色的影子邊、中間白邊、最裡面是由亮到深的填色 ——
+  // 主視覺「四象星座×皮克敏」那個標題就是這樣疊出來的
   g.save();
-  g.shadowColor = "rgba(0,0,0,.25)";
-  g.shadowBlur = px * 0.15;
-  g.shadowOffsetY = px * 0.06;
+  g.shadowColor = "rgba(10,30,80,.35)";
+  g.shadowBlur = px * 0.18;
+  g.shadowOffsetY = px * 0.08;
+  g.strokeStyle = "rgba(20,40,90,.35)";
+  g.lineWidth = px * 0.34;
+  g.strokeText(text, x, y);
+  g.restore();
   g.strokeStyle = stroke;
   g.lineWidth = px * 0.22;
   g.strokeText(text, x, y);
-  g.restore();
-  g.fillStyle = fill;
+  const grad = g.createLinearGradient(0, y - px * 0.5, 0, y + px * 0.5);
+  grad.addColorStop(0, shadeCss(fill, 0.25));
+  grad.addColorStop(1, fill);
+  g.fillStyle = grad;
   g.fillText(text, x, y);
+}
+
+/** shade() 只吃 #RRGGBB；別的格式就原樣回傳。 */
+function shadeCss(c: string, amt: number): string {
+  return /^#[0-9a-fA-F]{6}$/.test(c) ? shade(c, amt) : c;
 }
 
 /** 倒數用的黃色圓章。urgent = 最後五秒，會跳動變紅。 */
@@ -312,9 +399,42 @@ export interface PikminPose {
   wave?: boolean;
   /** 戴廚師帽（火候達人） */
   chef?: boolean;
+  /** 兩手往前伸，抓著東西拉（拔蘿蔔） */
+  reach?: boolean;
 }
 
+/**
+ * 畫一隻皮克敏。有 WebGL 就用 3D 模型（three/pikmin3d.ts），
+ * 沒有就退回下面的 2D 畫法 —— 畫面樸素一點，但不會壞。
+ */
 export function pikmin(
+  g: CanvasRenderingContext2D,
+  x: number, y: number, h: number,
+  team: TeamId,
+  pose: PikminPose,
+): void {
+  const t = pose.t + (pose.phase ?? 0) * 1000;
+  const walk = pose.walk ?? 0;
+  const ok = drawPikmin3D(
+    g, x, y, h, team,
+    {
+      walk: walk > 0 ? t / (520 - walk * 240) : undefined,
+      idle: t / 2400,
+      wave: pose.wave ? t / 700 : undefined,
+      lean: pose.lean,
+      reach: pose.reach,
+      // 走路時不眨眼（那一格快取不值得），站著才偶爾眨一下
+      blink: walk === 0 && t % 3800 < 130,
+      chef: pose.chef,
+    },
+    pose.face ?? 1,
+    pose.t,
+  );
+  if (!ok) pikmin2D(g, x, y, h, team, pose);
+}
+
+/** 2D 版的皮克敏。沒有 WebGL、或這一幀 3D 還來不及拍的時候頂著用。 */
+function pikmin2D(
   g: CanvasRenderingContext2D,
   x: number, y: number, h: number,
   team: TeamId,
@@ -542,8 +662,18 @@ export function pikmin(
    道具：蘿蔔、彩帶
    ------------------------------------------------------------ */
 
-/** 一根蘿蔔。(x, y) 是蘿蔔頭（葉子根部）的位置，s 是長度。 */
+/** 一根蘿蔔。(x, y) 是蘿蔔頭（葉子根部）的位置，s 是長度。有 WebGL 就用 3D 拍好的。 */
 export function carrot(g: CanvasRenderingContext2D, x: number, y: number, s: number, rot = 0): void {
+  const size = s / CARROT_ANCHOR.len;
+  const img = carrotSprite(size > 150 ? 256 : 128);
+  if (img) {
+    g.save();
+    g.translate(x, y);
+    g.rotate(rot);
+    g.drawImage(img, -CARROT_ANCHOR.x * size, -CARROT_ANCHOR.y * size, size, size);
+    g.restore();
+    return;
+  }
   g.save();
   g.translate(x, y);
   g.rotate(rot);
@@ -630,4 +760,145 @@ export function createConfetti(): {
       bits = [];
     },
   };
+}
+
+/* ------------------------------------------------------------
+   隊伍卡的背景（主視覺四張卡各有自己的場景）
+     火：岩漿的紅橘色，火星往上飄
+     土：金黃的陽光，底下一堆石頭
+     水：藍色的水面，泡泡往上冒
+     風：淡藍白的天空，一圈一圈的風
+   ------------------------------------------------------------ */
+export function teamCardBackdrop(
+  g: CanvasRenderingContext2D,
+  x: number, y: number, w: number, h: number,
+  team: TeamId,
+  t: number,
+  unit: number,
+): void {
+  g.save();
+  g.shadowColor = "rgba(0,0,0,.25)";
+  g.shadowBlur = unit * 2;
+  g.shadowOffsetY = unit * 0.6;
+  roundRect(g, x, y, w, h, unit * 3);
+  g.fillStyle = "#fff";
+  g.fill();
+  g.restore();
+
+  g.save();
+  roundRect(g, x, y, w, h, unit * 3);
+  g.clip();
+
+  const grad = g.createLinearGradient(0, y, 0, y + h);
+  const stops: Record<TeamId, [string, string, string]> = {
+    A: ["#FFB36B", "#F0502E", "#9E1712"],
+    C: ["#FFF1B8", "#F6C84A", "#B57A1C"],
+    B: ["#CBE9FF", "#5FA8F2", "#1D4FB8"],
+    D: ["#FFFFFF", "#E4EEFA", "#AFC3DD"],
+  };
+  const [c0, c1, c2] = stops[team];
+  grad.addColorStop(0, c0);
+  grad.addColorStop(0.55, c1);
+  grad.addColorStop(1, c2);
+  g.fillStyle = grad;
+  g.fillRect(x, y, w, h);
+
+  // 簡單的固定亂數，粒子的位置不會每幀亂跳
+  const seeded = (i: number, k: number): number => {
+    const v = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453;
+    return v - Math.floor(v);
+  };
+
+  if (team === "A") {
+    // 底部的岩漿裂縫
+    g.strokeStyle = "rgba(255,200,80,.7)";
+    g.lineWidth = unit * 0.35;
+    for (let i = 0; i < 4; i++) {
+      g.beginPath();
+      const bx = x + w * (0.1 + i * 0.25);
+      g.moveTo(bx, y + h);
+      g.lineTo(bx + w * 0.06, y + h * 0.9);
+      g.lineTo(bx + w * 0.02, y + h * 0.82);
+      g.stroke();
+    }
+    // 往上飄的火星
+    for (let i = 0; i < 14; i++) {
+      const life = ((t / 2600 + seeded(i, 1)) % 1);
+      const px = x + w * seeded(i, 2) + Math.sin(t / 500 + i) * unit;
+      const py = y + h * (1 - life);
+      g.fillStyle = `rgba(255,${180 + Math.round(seeded(i, 3) * 60)},80,${(1 - life) * 0.9})`;
+      g.beginPath();
+      g.arc(px, py, unit * (0.25 + seeded(i, 4) * 0.35), 0, Math.PI * 2);
+      g.fill();
+    }
+  } else if (team === "C") {
+    // 陽光
+    g.save();
+    g.globalAlpha = 0.35;
+    g.fillStyle = "#FFFFFF";
+    for (let i = 0; i < 5; i++) {
+      const a = -0.9 + i * 0.28 + Math.sin(t / 3000) * 0.05;
+      g.beginPath();
+      g.moveTo(x + w * 0.85, y);
+      g.lineTo(x + w * 0.85 + Math.cos(a + Math.PI / 2) * h, y + Math.sin(a + Math.PI / 2) * h);
+      g.lineTo(x + w * 0.85 + Math.cos(a + Math.PI / 2 + 0.08) * h, y + Math.sin(a + Math.PI / 2 + 0.08) * h);
+      g.fill();
+    }
+    g.restore();
+    // 底下的石頭堆
+    for (const [fx, fr, col] of [[0.2, 0.22, "#8C7355"], [0.75, 0.18, "#7A6348"], [0.5, 0.14, "#9C8466"]] as const) {
+      const rg = g.createRadialGradient(x + w * fx - w * fr * 0.3, y + h - w * fr * 0.6, 0, x + w * fx, y + h, w * fr * 1.3);
+      rg.addColorStop(0, shade(col, 0.3));
+      rg.addColorStop(1, col);
+      g.fillStyle = rg;
+      g.beginPath();
+      g.ellipse(x + w * fx, y + h, w * fr, w * fr * 0.8, 0, Math.PI, 0);
+      g.fill();
+    }
+  } else if (team === "B") {
+    // 水波
+    g.strokeStyle = "rgba(255,255,255,.4)";
+    g.lineWidth = unit * 0.3;
+    for (let k = 0; k < 4; k++) {
+      const wy = y + h * (0.72 + k * 0.08);
+      g.beginPath();
+      for (let i = 0; i <= 20; i++) {
+        const px = x + (w * i) / 20;
+        const py = wy + Math.sin(i * 0.9 + t / 600 + k) * unit * 0.5;
+        if (i === 0) g.moveTo(px, py);
+        else g.lineTo(px, py);
+      }
+      g.stroke();
+    }
+    // 泡泡
+    for (let i = 0; i < 10; i++) {
+      const life = ((t / 3200 + seeded(i, 1)) % 1);
+      const px = x + w * seeded(i, 2) + Math.sin(t / 400 + i) * unit * 0.6;
+      const py = y + h * (1 - life * 0.9);
+      g.strokeStyle = `rgba(255,255,255,${0.7 * (1 - life)})`;
+      g.lineWidth = unit * 0.2;
+      g.beginPath();
+      g.arc(px, py, unit * (0.4 + seeded(i, 3) * 0.6), 0, Math.PI * 2);
+      g.stroke();
+    }
+  } else {
+    // 風：一圈一圈的捲線
+    g.strokeStyle = "rgba(120,150,190,.45)";
+    g.lineWidth = unit * 0.35;
+    g.lineCap = "round";
+    for (let i = 0; i < 4; i++) {
+      const off = ((t / 4000 + i * 0.27) % 1) * (w + unit * 20) - unit * 10;
+      const cy = y + h * (0.25 + i * 0.18);
+      g.beginPath();
+      g.moveTo(x + off - unit * 8, cy);
+      g.quadraticCurveTo(x + off, cy - unit * 1.5, x + off + unit * 4, cy);
+      g.arc(x + off + unit * 4, cy - unit * 1.2, unit * 1.2, Math.PI / 2, -Math.PI, true);
+      g.stroke();
+    }
+    g.fillStyle = "rgba(255,255,255,.85)";
+    cloud(g, x + w * 0.15, y + h * 0.82, unit * 2.2);
+    cloud(g, x + w * 0.62, y + h * 0.88, unit * 1.8);
+  }
+  g.restore();
+  glossAndBorder(g, x, y, w, h, unit, team === "D" ? "#C9D3E3" : "#FFFFFF");
 }

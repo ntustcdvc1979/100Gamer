@@ -38,6 +38,30 @@
 
   <div class="cols">
     <section class="col">
+      <!-- 連線模式。開場前決定一次就好：切換會讓投影幕和大家的手機換到另一個網站，
+           分數不會跟過去。 -->
+      <h2>連線模式</h2>
+      <div class="setting netmode">
+        <p class="netNow" id="netNow">目前：—</p>
+        <label class="radio">
+          <input type="radio" name="net" value="A">
+          <b>A 各自網路</b>（預設）
+          <span>玩家用自己的行動網路，連雲端伺服器。不靠場地 Wi-Fi。</span>
+        </label>
+        <label class="radio">
+          <input type="radio" name="net" value="B">
+          <b>B 區網</b>（mesh Wi-Fi）
+          <span>全場連現場的 Wi-Fi，連到跑 <code>npm run host</code> 的那台筆電。</span>
+        </label>
+        <div id="netLanRow" hidden>
+          <label for="netLan">那台筆電的網址（npm run host 會印出來）</label>
+          <input id="netLan" type="text" placeholder="例如 192.168.1.10:8080" autocomplete="off">
+          <label for="netWifi">現場 Wi-Fi 名稱（會顯示在玩家手機上）</label>
+          <input id="netWifi" type="text" placeholder="例如 NTUST-Party" autocomplete="off">
+        </div>
+        <button class="ctl" id="btnNet">切換連線模式</button>
+      </div>
+
       <h2>關卡</h2>
       <ul class="games" id="games"></ul>
 

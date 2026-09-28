@@ -15,11 +15,15 @@ import "../shared/base.css";
 import "./stage.css";
 import { svg } from "../shared/qrcode.js";
 import { openRoom, playUrl } from "../net/room";
+import { normalizeLanBase, PUBLIC_SITE, siteBase } from "../net/wsurl";
 import { createStageAudio } from "./audio";
+import { drawPreview } from "./preview";
+import { clearPikminCache } from "./three/pikmin3d";
+import { clearPropCache } from "./three/props";
 import { createSurface } from "./canvas";
 import { Field } from "./render";
 import { createGames, type Game, type GameContext } from "./games";
-import { TEAMS, TEAM_IDS } from "../shared/teams";
+import { TEAMS } from "../shared/teams";
 import type { Player, ScoreRow } from "../net/schema";
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -80,7 +84,8 @@ async function main(): Promise<void> {
     },
     hudBottom: () => {
       const hud = document.querySelector<HTMLElement>(".hud");
-      if (!hud || hud.offsetParent === null) return 0;
+      // 不能用 offsetParent 判斷有沒有顯示 —— position:fixed 的元素 offsetParent 永遠是 null
+      if (!hud || getComputedStyle(hud).display === "none") return 0;
       return hud.getBoundingClientRect().bottom * (surface.w / window.innerWidth);
     },
   };
@@ -129,6 +134,9 @@ async function main(): Promise<void> {
     game = games[index] as Game;
     // 先清掉上一關的 state 再讓新的關卡填 —— 不清的話舊欄位會沿用下去
     room.clearGameState();
+    // 上一關拍好的 3D 圖用不到了，放掉記憶體
+    clearPikminCache();
+    clearPropCache();
     game.enter(ctx);
     $("gameTitle").textContent = game.title;
     // 卡通主題的關卡底是亮的天空，HUD 要換一套配色（見 stage.css）
@@ -175,12 +183,7 @@ async function main(): Promise<void> {
     playerCount = uids.size;
     syncQr();
 
-    // 手機的選隊畫面要看得到哪一隊人少，不然一定有一隊爆滿。
-    // 四個數字，只有人進出時才變，放進 state 划算。
-    const counts = TEAM_IDS.map(
-      (t) => [...field.actors.values()].filter((a) => a.team === t).length,
-    );
-    room.publishState({ teamCounts: counts });
+    // 各隊人數不再廣播給手機（手機上也不顯示）。主控台自己從計分表算。
   });
 
   // 輸入：高頻，這是整個系統的熱路徑。這裡只把向量抄進記憶體，
@@ -258,6 +261,18 @@ async function main(): Promise<void> {
       case "sound":
         audio.setEnabled(cmd.bgm, cmd.sfx);
         break;
+      case "netMode": {
+        /* 切換連線模式 = 整個投影幕換到另一個網站去開（見 net/wsurl.ts）。
+           先告訴手機要去哪裡（它們會跳出「換 Wi-Fi、點一下前往」的提示），
+           等一下下讓這個 state 送出去，再自己跳過去。
+           新的那邊是另一台伺服器，分數不會跟過去 —— 主控台切之前會先警告。 */
+        const target = cmd.mode === "B" ? normalizeLanBase(cmd.lan ?? "") : PUBLIC_SITE;
+        if (!target || target === siteBase()) break;
+        room.publishState({ netSwitch: { mode: cmd.mode, playUrl: `${target}play.html`, wifi: cmd.wifi } });
+        setStatus(false, cmd.mode === "B" ? "切換到區網模式中…" : "切換到各自網路模式中…");
+        setTimeout(() => location.assign(`${target}stage.html`), 2500);
+        break;
+      }
       case "resetScores":
         field.clearTotals();
         break;
@@ -306,6 +321,10 @@ async function main(): Promise<void> {
   }, 500);
   window.addEventListener("pagehide", () => clearInterval(scoreTimer));
 
+  /* stage.html?preview=pikmin：只畫模型展示，調 3D 模型的時候用。
+     正式活動不會帶這個參數。 */
+  const preview = new URLSearchParams(location.search).get("preview") === "pikmin";
+
   function frame(now: number): void {
     const dt = Math.min((now - last) / 1000, 0.1);
     last = now;
@@ -313,9 +332,13 @@ async function main(): Promise<void> {
     surface.ctx.fillStyle = "#14141A";
     surface.ctx.fillRect(0, 0, surface.w, surface.h);
 
-    game?.step(dt, now, ctx);
-    game?.draw(now, ctx);
-    if (showLeaderboard) drawLeaderboard();
+    if (preview) {
+      drawPreview(surface.ctx, surface.w, surface.h, now);
+    } else {
+      game?.step(dt, now, ctx);
+      game?.draw(now, ctx);
+      if (showLeaderboard) drawLeaderboard();
+    }
 
     requestAnimationFrame(frame);
   }

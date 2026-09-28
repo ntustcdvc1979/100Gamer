@@ -155,7 +155,6 @@
   position: absolute; top: .3rem; right: .5rem;
   font-size: .95rem; line-height: 1;
 }
-.teamBtn .tc { font-size: .8rem; font-weight: 700; opacity: .75; }
 
 /* 感應器狀態。火候達人和搖手機都靠它，開始前就要知道自己能不能用。 */
 .sensor {
@@ -240,3 +239,18 @@
 .teamBtn .tp { line-height: 0; }
 .teamBtn .tz { font-size: .72rem; font-weight: 700; opacity: .7; }
 .team .myPik { display: inline-block; vertical-align: -.35em; margin-right: .3rem; }
+
+/* 主持人切換連線模式時的提示。蓋在最上面，一定要看到。 */
+.netSwitch {
+  position: fixed; inset: 0; z-index: 50;
+  display: grid; place-items: center; padding: 1.5rem;
+  background: rgba(10, 20, 40, .72);
+}
+.netSwitch[hidden] { display: none; }
+.nsCard {
+  width: min(22rem, 100%); padding: 1.5rem 1.25rem; border-radius: 1.25rem;
+  background: #fff; color: #1E2A44; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.3);
+}
+.nsCard h2 { margin: 0 0 .5rem; font-size: 1.3rem; }
+.nsCard p { margin: 0 0 1rem; line-height: 1.6; }
+.nsCard .btn { display: block; text-decoration: none; }
