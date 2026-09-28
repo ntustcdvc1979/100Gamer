@@ -14,7 +14,7 @@
 
 import { TEAMS, type TeamId } from "../shared/teams";
 import { backdrop, type SceneKind } from "./three/backdrop";
-import { drawPikmin3D } from "./three/pikmin3d";
+import { flushPikmin3D, queuePikmin3D } from "./three/pikmin3d";
 import { CARROT_ANCHOR, carrotSprite } from "./three/props";
 
 /** 圓體。主視覺用的是圓圓胖胖的字，粉圓最接近，而且有繁中。 */
@@ -401,6 +401,8 @@ export interface PikminPose {
   chef?: boolean;
   /** 兩手往前伸，抓著東西拉（拔蘿蔔） */
   reach?: boolean;
+  /** 兩手舉高扛著東西（賽跑扛蘿蔔回廚房） */
+  carry?: boolean;
 }
 
 /**
@@ -415,22 +417,33 @@ export function pikmin(
 ): void {
   const t = pose.t + (pose.phase ?? 0) * 1000;
   const walk = pose.walk ?? 0;
-  const ok = drawPikmin3D(
-    g, x, y, h, team,
+  // 眨眼：每 3.8 秒一次，閉上再張開大約 0.16 秒，是連續的不是一格一格
+  const bt = t % 3800;
+  const blink = bt < 160 ? Math.sin((bt / 160) * Math.PI) : 0;
+  const ok = queuePikmin3D(
+    x, y, h, team,
     {
       walk: walk > 0 ? t / (520 - walk * 240) : undefined,
       idle: t / 2400,
       wave: pose.wave ? t / 700 : undefined,
       lean: pose.lean,
       reach: pose.reach,
-      // 走路時不眨眼（那一格快取不值得），站著才偶爾眨一下
-      blink: walk === 0 && t % 3800 < 130,
+      carry: pose.carry,
+      blink,
       chef: pose.chef,
     },
     pose.face ?? 1,
-    pose.t,
   );
   if (!ok) pikmin2D(g, x, y, h, team, pose);
+}
+
+/**
+ * 把排好的 3D 皮克敏一次畫到畫布上。
+ * 在「要蓋在皮克敏上面的東西」（名字、標題）之前呼叫；
+ * stage/main.ts 每幀最後也會叫一次，漏掉的不會不見。
+ */
+export function flushPikmin(g: CanvasRenderingContext2D): void {
+  flushPikmin3D(g);
 }
 
 /** 2D 版的皮克敏。沒有 WebGL、或這一幀 3D 還來不及拍的時候頂著用。 */

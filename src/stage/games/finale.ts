@@ -14,7 +14,7 @@
    ============================================================ */
 
 import { TEAMS, TEAM_IDS, type TeamId } from "../../shared/teams";
-import { bigText, createConfetti, font, pikmin, scenery, shade } from "../cartoon";
+import { bigText, createConfetti, flushPikmin, font, pikmin, scenery, shade } from "../cartoon";
 import type { Game, GameContext } from "./types";
 
 const SHOW = 10;
@@ -201,6 +201,7 @@ export function createFinaleGame(): Game {
 
       });
 
+      flushPikmin(g);
       confetti.draw(g, w, h, now, dt);
 
       if (revealedCount === 0) {

@@ -17,6 +17,7 @@ import {
   bigText,
   carrot,
   createConfetti,
+  flushPikmin,
   font,
   pikmin,
   roundRect,
@@ -26,6 +27,10 @@ import {
   woodSign,
 } from "../cartoon";
 import { PER_CARROT } from "../../shared/rules";
+import { COTTAGE_ANCHOR, cottageSprite } from "../three/props";
+
+/** 扛蘿蔔時，蘿蔔中線離腳底多高（皮克敏身高的倍數）：剛好壓在舉起來的手上 */
+const CARRY_HEIGHT = 0.85;
 import type { Game, GameContext } from "./types";
 
 /**
@@ -442,7 +447,7 @@ export function createShakeRunGame(): Game {
 
       scenery(g, w, h, now, "meadow", 0.2);
 
-      /* 左邊留一塊寫隊名和步數，右邊留一塊給終點旗。
+      /* 左邊留一塊寫隊名和步數，右邊留一塊給終點的廚房。
          角色從 startX 跑到 endX，不繞圈 —— 位置本身就是進度。 */
       const startX = w * 0.27;
       // 終點留在 QR 左邊。QR 在右上角，跑到 0.9 的話終點線會被它蓋住。
@@ -504,27 +509,38 @@ export function createShakeRunGame(): Game {
           g.fillRect(endX + c * sq - sq, top + r * sq, sq, Math.min(sq, bottom - (top + r * sq)));
         }
       }
-      // 終點旗
-      g.strokeStyle = "#5A3517";
-      g.lineWidth = unit * 0.5;
-      g.beginPath();
-      g.moveTo(endX + sq, top);
-      g.lineTo(endX + sq, top - unit * 9);
-      g.stroke();
-      const flutter = Math.sin(now / 160) * unit * 0.5;
-      for (let r = 0; r < 3; r++) {
-        for (let c = 0; c < 4; c++) {
-          g.fillStyle = (r + c) % 2 === 0 ? "#1B1B1F" : "#FFFFFF";
-          g.fillRect(endX + sq + c * unit * 1.2, top - unit * 9 + r * unit * 1.2 + (c / 4) * flutter, unit * 1.2, unit * 1.2);
-        }
+      /* 終點是廚房：大家扛著剛拔的蘿蔔跑回去下鍋。
+         屋子擺在跑道右邊，門朝左，煙囪一直冒煙 —— 一看就知道「跑到那裡」。 */
+      const houseW = w * 0.13;
+      const houseX = endX + unit * 5 + houseW * 0.62;
+      const houseY = bottom + unit * 1.5;
+      const house = cottageSprite(512);
+      if (house) {
+        const size = houseW / COTTAGE_ANCHOR.width;
+        g.drawImage(house, houseX - COTTAGE_ANCHOR.x * size, houseY - COTTAGE_ANCHOR.y * size, size, size);
       }
+      // 煙囪的煙：一顆一顆往上飄、變大、變淡
+      for (let k = 0; k < 5; k++) {
+        const a = (now / 1400 + k / 5) % 1;
+        g.fillStyle = `rgba(255,255,255,${0.75 * (1 - a)})`;
+        g.beginPath();
+        g.arc(
+          houseX + houseW * COTTAGE_ANCHOR.smokeX + Math.sin(a * 5 + k) * unit * 1.2,
+          houseY - houseW * COTTAGE_ANCHOR.smokeY - a * unit * 14,
+          unit * (1.2 + a * 2.6), 0, Math.PI * 2,
+        );
+        g.fill();
+      }
+      woodSign(g, houseX, houseY + unit * 3.5, "廚房", unit * 2.6, unit);
 
+      const carried: { x: number; y: number; len: number; h: number; finished: boolean; bob: number; i: number }[] = [];
       DISPLAY_ORDER.forEach((id, i) => {
         const t = TEAMS[id];
         const y = top + laneH * i + laneH / 2;
         const steps = total[id] ?? 0;
         const done = Math.min(1, steps / goalSteps);
-        const px = startX + (endX - startX) * done;
+        // 三隻一組的最前面那隻：起跑時整組都在起跑線後面，到終點時最前面那隻踩在線上
+        const px = startX + laneH * 0.72 + (endX - startX - laneH * 0.72) * done;
 
         // 左邊：隊伍膠囊，寫著皮克敏名稱與步數
         const pw = startX - unit * 6;
@@ -560,26 +576,44 @@ export function createShakeRunGame(): Game {
         g.fillRect(startX, y - laneH * 0.12, px - startX, laneH * 0.24);
         g.globalAlpha = 1;
 
-        // 跑者：跑多快腳就擺多快。到終點的舉手歡呼。
+        /* 跑者：三隻一組扛著剛拔的蘿蔔，跑多快腳就擺多快。
+           到終點的把蘿蔔放下、舉手歡呼。 */
         const finished = podium.includes(id);
         const speed = Math.min(1, (rate[id] ?? 0) / 60);
-        pikmin(g, px, y + laneH * 0.42, laneH * 1.25, id, {
-          t: now, phase: i,
-          walk: finished ? 0 : running ? Math.max(0.15, speed) : 0,
-          wave: finished,
-          face: 1,
-        });
+        const bodyH = laneH * 1.02;
+        const gap = laneH * 0.36;
+        const feet = y + laneH * 0.42;
+        for (let k = 0; k < 3; k++) {
+          pikmin(g, px - gap * (2 - k), feet, bodyH, id, {
+            t: now, phase: i * 3 + k * 0.37,
+            walk: finished ? 0 : running ? Math.max(0.15, speed) : 0,
+            carry: !finished,
+            wave: finished,
+            face: 1,
+          });
+        }
+        carried.push({ x: px - gap * 2, y: feet, len: gap * 2.7, h: bodyH, finished, bob: running && !finished ? speed : 0, i });
         // 腳下揚起的灰塵
         if (running && speed > 0.2 && !finished) {
           g.fillStyle = "rgba(255,240,220,.6)";
           for (let k = 0; k < 3; k++) {
             const a = ((now / 90 + k * 7) % 10) / 10;
             g.beginPath();
-            g.arc(px - unit * (2 + a * 5), y + laneH * 0.4 - a * unit * 2, unit * (1 - a) * 1.2, 0, Math.PI * 2);
+            g.arc(px - gap * 2 - unit * (2 + a * 5), y + laneH * 0.4 - a * unit * 2, unit * (1 - a) * 1.2, 0, Math.PI * 2);
             g.fill();
           }
         }
       });
+
+      flushPikmin(g);
+
+      // 扛在頭上的蘿蔔要畫在皮克敏之後，才會壓在手上面
+      for (const c of carried) {
+        // 到了就是送進廚房了，手上空了才能舉手歡呼
+        if (c.finished) continue;
+        const bob = Math.sin(now / 130 + c.i) * unit * 0.35 * c.bob;
+        carrot(g, c.x - c.len * 0.15, c.y - c.h * CARRY_HEIGHT + bob, c.len, -Math.PI / 2 + 0.03);
+      }
 
       // 倒數圓章放跑道上方正中間，遠遠就看得到還剩多久
       const secs = running ? Math.max(0, Math.ceil((endsAt - now) / 1000)) : Math.ceil(left / 1000);
@@ -945,6 +979,9 @@ export function createShakeCarrotGame(): Game {
         // 右下角有連線狀態的小標籤，木牌往上抬一點才不會被它壓到
         woodSign(g, cx, h - unit * 10, `${t.pikmin} ${n} 根`, unit * 3, unit);
       });
+
+      // 拔蘿蔔的皮克敏畫上去，飛出去的蘿蔔再蓋在上面
+      flushPikmin(g);
 
       // 飛出去的蘿蔔
       for (const c of flying) {

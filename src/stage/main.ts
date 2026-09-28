@@ -18,7 +18,7 @@ import { openRoom, playUrl } from "../net/room";
 import { normalizeLanBase, PUBLIC_SITE, siteBase } from "../net/wsurl";
 import { createStageAudio } from "./audio";
 import { drawPreview } from "./preview";
-import { clearPikminCache } from "./three/pikmin3d";
+import { flushPikmin } from "./cartoon";
 import { clearPropCache } from "./three/props";
 import { createSurface } from "./canvas";
 import { Field } from "./render";
@@ -135,7 +135,6 @@ async function main(): Promise<void> {
     // 先清掉上一關的 state 再讓新的關卡填 —— 不清的話舊欄位會沿用下去
     room.clearGameState();
     // 上一關拍好的 3D 圖用不到了，放掉記憶體
-    clearPikminCache();
     clearPropCache();
     game.enter(ctx);
     $("gameTitle").textContent = game.title;
@@ -321,25 +320,36 @@ async function main(): Promise<void> {
   }, 500);
   window.addEventListener("pagehide", () => clearInterval(scoreTimer));
 
-  /* stage.html?preview=pikmin：只畫模型展示，調 3D 模型的時候用。
+  /* stage.html?preview=pikmin（或 =props）：只畫模型展示，調 3D 模型的時候用。
      正式活動不會帶這個參數。 */
-  const preview = new URLSearchParams(location.search).get("preview") === "pikmin";
+  const previewKind = new URLSearchParams(location.search).get("preview");
+  const preview = previewKind === "pikmin" || previewKind === "props" ? previewKind : null;
+
+  /* 每幀花了多少毫秒（平滑過）。在投影幕那台的開發者工具裡打 __p100perf
+     就看得到，判斷那台電腦跑不跑得動用的。 */
+  const perf = { frameMs: 0 };
+  (window as unknown as { __p100perf: typeof perf }).__p100perf = perf;
 
   function frame(now: number): void {
     const dt = Math.min((now - last) / 1000, 0.1);
     last = now;
+    const workStart = performance.now();
 
     surface.ctx.fillStyle = "#14141A";
     surface.ctx.fillRect(0, 0, surface.w, surface.h);
 
     if (preview) {
-      drawPreview(surface.ctx, surface.w, surface.h, now);
+      drawPreview(surface.ctx, surface.w, surface.h, now, preview);
+      flushPikmin(surface.ctx);
     } else {
       game?.step(dt, now, ctx);
       game?.draw(now, ctx);
+      // 關卡自己沒 flush 的 3D 皮克敏，在這裡補畫上去
+      flushPikmin(surface.ctx);
       if (showLeaderboard) drawLeaderboard();
     }
 
+    perf.frameMs = perf.frameMs * 0.9 + (performance.now() - workStart) * 0.1;
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

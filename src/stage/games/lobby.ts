@@ -15,7 +15,7 @@
    ============================================================ */
 
 import { DISPLAY_ORDER, TEAMS, type TeamId } from "../../shared/teams";
-import { bigText, font, pikmin, roundRect, scenery, shade, teamCardBackdrop, woodSign } from "../cartoon";
+import { bigText, flushPikmin, font, pikmin, roundRect, scenery, shade, teamCardBackdrop, woodSign } from "../cartoon";
 import type { Game, GameContext } from "./types";
 
 interface Walker {
@@ -140,18 +140,21 @@ export function createLobbyGame(): Game {
       // 卡片窄的時候（4:3 投影機、QR 比較寬）字跟著縮，不要超出卡片
       const k = Math.min(1, cw / (unit * 22));
       DISPLAY_ORDER.forEach((id, i) => {
-        const t = TEAMS[id];
         const x = left + i * (cw + gap);
         // 主視覺那樣，每張卡有自己的場景：岩漿、陽光石堆、水面、風
         teamCardBackdrop(g, x, top, cw, ch, id, now, unit);
-
         // 吉祥物：輪流揮手，才不會四隻一起動得像機器人
         const waving = Math.floor(now / 1800) % 4 === i;
         pikmin(g, x + cw / 2, top + ch * 0.8, Math.min(ch * 0.72, cw * 1.25), id, {
           t: now, phase: i * 0.7, wave: waving, face: i < 2 ? 1 : -1,
         });
+      });
+      // 先把吉祥物畫上去，隊名和膠囊再蓋在上面（主視覺也是字在最上層）
+      flushPikmin(g);
 
-        // 隊名寫在吉祥物後面，才會壓在葉子和花上面（主視覺也是字在最上層）
+      DISPLAY_ORDER.forEach((id, i) => {
+        const t = TEAMS[id];
+        const x = left + i * (cw + gap);
         // 隊名
         bigText(g, `${t.name}星座`, x + cw / 2, top + unit * 4.2, unit * 3.6 * k, t.light ? "#3A4A66" : shade(t.color, -0.3));
 
@@ -188,26 +191,30 @@ export function createLobbyGame(): Game {
         const py = wk.y * h;
         const age = now - wk.born;
 
-        g.save();
         if (age < SPROUT_MS) {
-          // 從土裡冒出來：只畫地面以上的部分，整隻慢慢往上長
+          // 從土裡「啵」一聲冒出來：先一個土堆，皮克敏從小彈到正常大小
           const k = age / SPROUT_MS;
-          g.beginPath();
-          g.rect(px - size, py - size * 2, size * 2, size * 2);
-          g.clip();
+          const pop = k < 0.7 ? (k / 0.7) * 1.15 : 1.15 - ((k - 0.7) / 0.3) * 0.15;
           g.fillStyle = "#6B4424";
           g.beginPath();
-          g.ellipse(px, py, size * 0.28, size * 0.07, 0, 0, Math.PI * 2);
+          g.ellipse(px, py, size * 0.3 * (1 - k * 0.5), size * 0.08, 0, 0, Math.PI * 2);
           g.fill();
-          pikmin(g, px, py + size * (1 - k), size, wk.team, { t: now, phase: wk.phase });
+          pikmin(g, px, py, size * pop, wk.team, { t: now, phase: wk.phase });
         } else {
           const walking = now >= wk.restUntil;
           pikmin(g, px, py, size, wk.team, {
             t: now, phase: wk.phase, walk: walking ? 0.6 : 0, face: wk.face,
           });
         }
-        g.restore();
+      }
+      // 皮克敏一次畫上去，名字再寫在上面
+      flushPikmin(g);
 
+      for (const wk of sorted) {
+        const depth = 0.8 + (wk.y - 0.8) * 1.8;
+        const size = unit * 9 * depth * (many ? 0.8 : 1);
+        const px = wk.x * w;
+        const py = wk.y * h;
         // 名字。人一多就只寫前面那一排，不然整片都是字。
         if (!many || wk.y > 0.9) {
           g.font = font(unit * 1.7);

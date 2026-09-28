@@ -36,8 +36,8 @@
 
 import type { PlayerAction } from "../../net/schema";
 import { DISPLAY_ORDER, TEAMS } from "../../shared/teams";
-import { bowlSprite, ovenSprite, panSprite } from "../three/props";
-import { bigText, card, font, pikmin, roundRect, scenery, shade, woodSign } from "../cartoon";
+import { bowlSprite, fryerSprite, ovenSprite, panSprite, wokSprite } from "../three/props";
+import { bigText, card, flushPikmin, font, pikmin, roundRect, scenery, shade, woodSign } from "../cartoon";
 import type { Game, GameContext } from "./types";
 
 interface Dish {
@@ -49,6 +49,8 @@ interface Dish {
   gesture: "flip" | "lift" | "shake" | "torch" | "tilt";
   /** 投影幕與手機上寫的動作提示 */
   verb: string;
+  /** 用哪一個 3D 道具。沒寫就是平底鍋。 */
+  prop?: "fryer" | "wok";
 }
 
 /**
@@ -61,10 +63,10 @@ interface Dish {
  */
 const DISHES: Dish[] = [
   { name: "煎蛋餅", mode: "timing", seconds: 7, gesture: "lift", verb: "把手機提起來（起鍋）" },
-  { name: "炸薯條起鍋", mode: "timing", seconds: 6, gesture: "lift", verb: "把手機提起來" },
+  { name: "炸薯條起鍋", mode: "timing", seconds: 6, gesture: "lift", verb: "把手機提起來", prop: "fryer" },
   { name: "掀鍋蓋", mode: "timing", seconds: 15, gesture: "lift", verb: "把手機提起來" },
   { name: "翻素火腿", mode: "timing", seconds: 10, gesture: "flip", verb: "把手機翻面" },
-  { name: "炒高麗菜", mode: "timing", seconds: 12, gesture: "flip", verb: "把手機翻面（翻動）" },
+  { name: "炒高麗菜", mode: "timing", seconds: 12, gesture: "flip", verb: "把手機翻面（翻動）", prop: "wok" },
   { name: "撒胡椒粉", mode: "timing", seconds: 5, gesture: "shake", verb: "晃手機" },
   { name: "烤箱焗烤", mode: "timing", seconds: 8, gesture: "torch", verb: "按鈕開烤箱燈" },
   { name: "端湯上桌", mode: "soup", seconds: 20, gesture: "tilt", verb: "傾斜手機保持平衡，別把湯灑了" },
@@ -220,12 +222,18 @@ export function createHeatMasterGame(): Game {
           ? ovenSprite(512, running ? 0.15 + doneShare * 0.85 : 0.1)
           : d.mode === "soup"
             ? bowlSprite(512, soupAvg / 100)
-            : panSprite(512, FOOD[index] ?? "#F2C94C", heat, index === 2 ? Math.max(0.2, doneShare) : 0, d.gesture === "shake");
+            : d.prop === "fryer"
+              // 起鍋的人越多，籃子從油裡撈得越高
+              ? fryerSprite(512, running || acts.size > 0 ? doneShare : 0, heat)
+              : d.prop === "wok"
+                ? wokSprite(512, heat)
+                : panSprite(512, FOOD[index] ?? "#F2C94C", heat, index === 2 ? Math.max(0.2, doneShare) : 0, d.gesture === "shake");
 
       if (propImg) {
-        const S = rr * (d.mode === "soup" ? 3.1 : 3.6);
-        if (d.gesture !== "torch" && d.mode !== "soup" && running) {
-          // 爐火畫在鍋子後面
+        // 油炸機比平底鍋高很多，縮小一點才不會壓到下面那行提示
+        const S = rr * (d.mode === "soup" ? 3.1 : d.prop === "fryer" ? 3.0 : 3.6);
+        if (d.gesture !== "torch" && d.mode !== "soup" && d.prop !== "fryer" && running) {
+          // 爐火畫在鍋子後面（油炸機是電的，沒有火）
           for (let k = 0; k < 9; k++) {
             const fx = cx - rr * 0.9 + (k / 8) * rr * 1.8;
             const fh = rr * (0.45 + 0.16 * Math.sin(now / 90 + k * 1.7));
@@ -242,6 +250,20 @@ export function createHeatMasterGame(): Game {
           }
         }
         g.drawImage(propImg, cx - S / 2, cy - S * 0.52, S, S);
+        if (d.prop === "fryer" && running) {
+          // 油鍋滋滋作響：油面上一顆一顆冒起來、散掉的小油煙
+          for (let k = 0; k < 10; k++) {
+            const a = (now / 900 + k / 10) % 1;
+            g.fillStyle = `rgba(255,255,255,${0.55 * (1 - a)})`;
+            g.beginPath();
+            g.arc(
+              cx + Math.sin(k * 2.3) * rr * 0.6 + Math.sin(a * 6 + k) * unit * 0.6,
+              cy - rr * 0.05 - a * rr * 0.55,
+              unit * (0.5 + a * 1.4), 0, Math.PI * 2,
+            );
+            g.fill();
+          }
+        }
         if (d.mode === "soup" && running) {
           // 熱氣
           g.strokeStyle = "rgba(255,255,255,.75)";
@@ -426,6 +448,8 @@ export function createHeatMasterGame(): Game {
           wave: !running && acts.size > 0 && i === Math.floor(now / 900) % 4,
         });
       });
+
+      flushPikmin(g);
 
       g.font = font(unit * 2.8);
       g.fillStyle = "#6B3A10";

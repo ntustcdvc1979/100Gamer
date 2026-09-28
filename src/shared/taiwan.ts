@@ -9,46 +9,36 @@
    所有題目的分數就全變了；而且「差 0.03 個畫面寬」沒有人聽得懂，
    「差 12 公里」大家馬上知道差多少。
 
-   輪廓是手工簡化的海岸線（約 30 個點）。不是精確測繪，
-   目的是讓人一眼認出台灣、點得到位置，不是拿來導航的。
+   海岸線與縣市界是內政部的開放資料，簡化到約 400 公尺
+   （見 taiwanData.ts）。手機上約 100×170 的格子、投影幕上幾百像素，
+   這個精度已經比畫面能顯示的還細。
    ============================================================ */
+
+import { BORDER_DATA, COAST_DATA } from "./taiwanData";
 
 export interface LonLat {
   lon: number;
   lat: number;
 }
 
-/** 逆時針從北端富貴角開始，沿西岸南下、繞過鵝鑾鼻、再沿東岸北上。 */
-export const OUTLINE: LonLat[] = [
-  { lon: 121.54, lat: 25.3 },   // 富貴角
-  { lon: 121.41, lat: 25.18 },  // 淡水
-  { lon: 121.1, lat: 25.02 },   // 桃園
-  { lon: 120.93, lat: 24.83 },  // 新竹
-  { lon: 120.76, lat: 24.6 },   // 苗栗
-  { lon: 120.52, lat: 24.28 },  // 台中港
-  { lon: 120.42, lat: 24.05 },  // 彰化
-  { lon: 120.15, lat: 23.55 },  // 雲林
-  { lon: 120.15, lat: 23.45 },  // 東石
-  { lon: 120.1, lat: 23.05 },   // 台南
-  { lon: 120.27, lat: 22.62 },  // 高雄
-  { lon: 120.4, lat: 22.48 },   // 林園
-  { lon: 120.59, lat: 22.37 },  // 枋寮
-  { lon: 120.7, lat: 22.18 },   // 楓港
-  { lon: 120.85, lat: 21.9 },   // 鵝鑾鼻
-  { lon: 120.88, lat: 22.05 },  // 滿州
-  { lon: 120.9, lat: 22.35 },   // 大武
-  { lon: 121.0, lat: 22.6 },    // 太麻里
-  { lon: 121.15, lat: 22.75 },  // 台東
-  { lon: 121.37, lat: 23.1 },   // 成功
-  { lon: 121.47, lat: 23.32 },  // 長濱
-  { lon: 121.61, lat: 23.98 },  // 花蓮
-  { lon: 121.75, lat: 24.3 },   // 和平
-  { lon: 121.8, lat: 24.46 },   // 南澳
-  { lon: 121.86, lat: 24.6 },   // 蘇澳
-  { lon: 121.82, lat: 24.86 },  // 頭城
-  { lon: 122.0, lat: 25.01 },   // 三貂角
-  { lon: 121.75, lat: 25.15 },  // 基隆
-];
+/** 把 taiwanData.ts 裡的差分字串解回經緯度。 */
+function decode(str: string): LonLat[] {
+  const n = str.split(",").map(Number);
+  const out: LonLat[] = [];
+  let x = 0;
+  let y = 0;
+  for (let i = 0; i + 1 < n.length; i += 2) {
+    x += n[i] as number;
+    y += n[i + 1] as number;
+    out.push({ lon: x / 1000, lat: y / 1000 });
+  }
+  return out;
+}
+
+/** 海岸線（本島＋綠島、蘭嶼、龜山島），每一圈是一個封閉多邊形。 */
+export const COAST: LonLat[][] = COAST_DATA.map(decode);
+/** 縣市界，每一條是一段折線（不封閉）。 */
+export const BORDERS: LonLat[][] = BORDER_DATA.map(decode);
 
 /* 投影範圍。留一點邊，島不會貼著框。 */
 const LON_MIN = 119.95;
@@ -97,93 +87,49 @@ export function geoScore(km: number): number {
 
 /** SVG / canvas 都能用的路徑字串，座標是 0..1，畫的時候自己乘寬高。 */
 export function outlinePath(w: number, h: number): string {
-  return (
-    OUTLINE.map((p, i) => {
+  return COAST.map((ring) => linePath(ring, w, h) + "Z").join("");
+}
+
+function linePath(pts: LonLat[], w: number, h: number): string {
+  return pts
+    .map((p, i) => {
       const { x, y } = project(p);
       return `${i === 0 ? "M" : "L"}${(x * w).toFixed(2)} ${(y * h).toFixed(2)}`;
-    }).join("") + "Z"
-  );
+    })
+    .join("");
 }
 
 /* ============================================================
-   縣市分界
+   縣市分界與名稱
 
-   ⚠️ 這是示意，不是行政區圖。
-
-   真正的縣市界是幾千個點的多邊形；這裡用的是「中央山脈的稜線」加上
-   幾條橫向的分界線，把島切成看得出來的區塊。目的是讓玩家點地圖時
-   有參考（「這裡大概是台中」），不是拿來查行政區的。
-   彼此接壤的細節、飛地、離島都沒有畫。
-
-   北部的台北／新北／基隆擠在很小的範圍裡，硬要切開在手機上只會變成
-   一團線，所以那一塊合成一格寫「雙北基隆」。
+   界線是真的行政區界（見 taiwanData.ts），標籤的位置是各縣市
+   最大那一塊的面積重心，再手動挪了幾個：
+   - 新北市包著台北市，重心會落在台北市裡面，所以移到烏來那一帶
+   - 新竹市、嘉義市太小，字寫不下，併進新竹、嘉義那一個字
    ============================================================ */
 
-/** 中央山脈稜線，由北到南。東西兩側的縣市以它為界。 */
-const SPINE: LonLat[] = [
-  { lon: 121.62, lat: 25.02 },
-  { lon: 121.5, lat: 24.78 },
-  { lon: 121.42, lat: 24.5 },
-  { lon: 121.3, lat: 24.2 },
-  { lon: 121.22, lat: 23.9 },
-  { lon: 121.1, lat: 23.6 },
-  { lon: 121.0, lat: 23.3 },
-  { lon: 120.92, lat: 23.0 },
-  { lon: 120.85, lat: 22.7 },
-  { lon: 120.75, lat: 22.4 },
-];
-
-/**
- * 分界線。每一條是一串點，畫成折線就好，不封閉。
- * 西側的線從西岸拉到稜線，東側的線從稜線拉到東岸。
- */
-export const COUNTY_LINES: LonLat[][] = [
-  SPINE,
-  // ---- 西側，由北到南 ----
-  [{ lon: 121.22, lat: 25.02 }, { lon: 121.35, lat: 24.9 }, { lon: 121.5, lat: 24.85 }], // 雙北 / 桃園
-  [{ lon: 121.0, lat: 24.93 }, { lon: 121.2, lat: 24.75 }, { lon: 121.44, lat: 24.62 }], // 桃園 / 新竹
-  [{ lon: 120.87, lat: 24.72 }, { lon: 121.1, lat: 24.6 }, { lon: 121.4, lat: 24.5 }],   // 新竹 / 苗栗
-  [{ lon: 120.64, lat: 24.43 }, { lon: 120.9, lat: 24.35 }, { lon: 121.32, lat: 24.28 }], // 苗栗 / 台中
-  [{ lon: 120.45, lat: 24.16 }, { lon: 120.7, lat: 24.1 }, { lon: 120.95, lat: 24.05 }],  // 台中 / 彰化・南投
-  [{ lon: 120.6, lat: 24.08 }, { lon: 120.72, lat: 23.85 }, { lon: 120.66, lat: 23.6 }],  // 彰化・雲林 / 南投
-  [{ lon: 120.28, lat: 23.82 }, { lon: 120.55, lat: 23.78 }, { lon: 120.8, lat: 23.75 }], // 彰化 / 雲林
-  [{ lon: 120.15, lat: 23.5 }, { lon: 120.5, lat: 23.48 }, { lon: 120.9, lat: 23.45 }],   // 雲林 / 嘉義
-  [{ lon: 120.12, lat: 23.25 }, { lon: 120.5, lat: 23.2 }, { lon: 120.95, lat: 23.2 }],   // 嘉義 / 台南
-  [{ lon: 120.08, lat: 22.9 }, { lon: 120.4, lat: 22.95 }, { lon: 120.85, lat: 23.0 }],   // 台南 / 高雄
-  [{ lon: 120.42, lat: 22.5 }, { lon: 120.6, lat: 22.6 }, { lon: 120.72, lat: 22.75 }],   // 高雄 / 屏東
-  // ---- 東側，由北到南 ----
-  [{ lon: 121.5, lat: 24.78 }, { lon: 121.7, lat: 24.72 }, { lon: 121.86, lat: 24.6 }],   // 雙北 / 宜蘭
-  [{ lon: 121.35, lat: 24.35 }, { lon: 121.6, lat: 24.4 }, { lon: 121.78, lat: 24.42 }],  // 宜蘭 / 花蓮
-  [{ lon: 121.05, lat: 23.4 }, { lon: 121.25, lat: 23.35 }, { lon: 121.42, lat: 23.28 }], // 花蓮 / 台東
-];
-
-/** 縣市名與標的位置。位置是「大概的中心」，不是政府所在地。 */
+/** 縣市名與標的位置。 */
 export const COUNTY_LABELS: { name: string; lon: number; lat: number }[] = [
-  { name: "雙北基隆", lon: 121.55, lat: 25.08 },
-  { name: "桃園", lon: 121.15, lat: 24.92 },
-  { name: "新竹", lon: 121.0, lat: 24.68 },
-  { name: "苗栗", lon: 120.85, lat: 24.45 },
-  { name: "台中", lon: 120.75, lat: 24.2 },
-  { name: "彰化", lon: 120.45, lat: 23.95 },
-  { name: "南投", lon: 120.9, lat: 23.85 },
-  { name: "雲林", lon: 120.35, lat: 23.65 },
-  { name: "嘉義", lon: 120.45, lat: 23.35 },
-  { name: "台南", lon: 120.3, lat: 23.05 },
-  { name: "高雄", lon: 120.5, lat: 22.8 },
-  { name: "屏東", lon: 120.62, lat: 22.4 },
-  { name: "宜蘭", lon: 121.65, lat: 24.6 },
-  { name: "花蓮", lon: 121.4, lat: 23.8 },
-  { name: "台東", lon: 121.05, lat: 22.9 },
+  { name: "基隆", lon: 121.8, lat: 25.19 }, // 基隆太小，字放到外海
+  { name: "台北", lon: 121.56, lat: 25.08 },
+  { name: "新北", lon: 121.6, lat: 24.86 },
+  { name: "桃園", lon: 121.24, lat: 24.9 },
+  { name: "新竹", lon: 121.13, lat: 24.68 },
+  { name: "苗栗", lon: 120.92, lat: 24.48 },
+  { name: "台中", lon: 120.88, lat: 24.24 },
+  { name: "彰化", lon: 120.47, lat: 23.96 },
+  { name: "南投", lon: 120.98, lat: 23.84 },
+  { name: "雲林", lon: 120.38, lat: 23.69 },
+  { name: "嘉義", lon: 120.52, lat: 23.44 },
+  { name: "台南", lon: 120.32, lat: 23.15 },
+  { name: "高雄", lon: 120.6, lat: 22.98 },
+  { name: "屏東", lon: 120.68, lat: 22.48 },
+  { name: "宜蘭", lon: 121.64, lat: 24.57 },
+  { name: "花蓮", lon: 121.38, lat: 23.75 },
+  { name: "台東", lon: 121.03, lat: 22.88 },
 ];
 
 /** 縣市界的路徑字串，座標是 0..1 乘上寬高。跟 outlinePath 同一個用法。 */
 export function countyPaths(w: number, h: number): string[] {
-  return COUNTY_LINES.map((line) =>
-    line
-      .map((p, i) => {
-        const { x, y } = project(p);
-        return `${i === 0 ? "M" : "L"}${(x * w).toFixed(2)} ${(y * h).toFixed(2)}`;
-      })
-      .join(""),
-  );
+  return BORDERS.map((line) => linePath(line, w, h));
 }

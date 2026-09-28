@@ -18,7 +18,7 @@
 import { GEO_QUESTIONS } from "../../config/geo";
 import { COUNTY_LABELS, countyPaths, distanceKm, geoScore, outlinePath, project, unproject } from "../../shared/taiwan";
 import { DISPLAY_ORDER, TEAMS, TEAM_IDS } from "../../shared/teams";
-import { bigText, card, font, pikmin, roundRect, scenery, shade, timerBadge } from "../cartoon";
+import { bigText, card, flushPikmin, font, pikmin, roundRect, scenery, shade, timerBadge } from "../cartoon";
 import { GEO_ROUND_MS as ROUND_MS } from "../../shared/rules";
 import type { Game, GameContext } from "./types";
 
@@ -68,7 +68,9 @@ export function createGeoGame(): Game {
       control: "tap",
       accepting: running,
       revealed,
-      place: q().name + (q().hint ? `（${q().hint}）` : ""),
+      /* 題目等主持人按開始才送。待機時就送出去的話，手快的人會先在
+         手機上查好位置，開始一按就點 —— 那就不是在比地理了。 */
+      place: running || revealed ? q().name + (q().hint ? `（${q().hint}）` : "") : `第 ${index + 1} 題`,
       /* 公布之後才把答案的座標送出去。
          沒公布前送等於直接把答案給玩家（打開 devtools 就看得到）；
          公布之後手機才畫得出正確位置、也才算得出「我差幾公里」——
@@ -100,7 +102,7 @@ export function createGeoGame(): Game {
     guesses.clear();
     ranked = [];
     ctx.field.reset(false);
-    announce(ctx, `第 ${index + 1} 題：${q().name}　等主持人開始`);
+    announce(ctx, `第 ${index + 1} 題　等主持人開始`);
   }
 
   function reveal(ctx: GameContext): void {
@@ -207,8 +209,15 @@ export function createGeoGame(): Game {
       // 題目卡。從 HUD（關卡名）底下開始，不要被它蓋住。
       const qTop = Math.max(unit * 12, ctx.hudBottom() + unit * 2);
       card(g, colX, qTop, colW, unit * 16, "#FFFFFF", unit, "#1E4FB8");
-      bigText(g, q().name, colX + colW / 2, qTop + unit * 6.5, unit * 5.5, "#1E4FB8");
-      if (q().hint) {
+      // 待機時只寫第幾題：題目和照片都等開始才亮出來
+      const shown = running || revealed;
+      bigText(g, shown ? q().name : `第 ${index + 1} 題`, colX + colW / 2, qTop + unit * 6.5, unit * 5.5, "#1E4FB8");
+      if (!shown) {
+        g.font = font(unit * 2.3, 400);
+        g.fillStyle = "#4A5570";
+        g.textAlign = "center";
+        g.fillText("主持人按開始就公布題目", colX + colW / 2, qTop + unit * 12.3);
+      } else if (q().hint) {
         g.font = font(unit * 2.3, 400);
         g.fillStyle = "#4A5570";
         g.textAlign = "center";
@@ -217,7 +226,7 @@ export function createGeoGame(): Game {
 
       // 照片做成拍立得：白框、微微歪一點
       let infoY = qTop + unit * 19;
-      const photo = photos.get(index);
+      const photo = shown ? photos.get(index) : undefined;
       if (photo?.complete && photo.naturalWidth > 1) {
         const maxH = h - infoY - unit * 38; // 下面還要留倒數與隊伍分數
         if (maxH > unit * 5) {
@@ -287,6 +296,8 @@ export function createGeoGame(): Game {
         });
       }
 
+      flushPikmin(g);
+
       /* ---- 中間：地圖，畫成一張藏寶圖卡片 ---- */
       const mapPad = unit * 1.5;
       card(g, box.x - mapPad, box.y - mapPad, box.w + mapPad * 2, box.h + mapPad * 2, "#BFE6FF", unit);
@@ -318,15 +329,14 @@ export function createGeoGame(): Game {
       g.lineWidth = Math.max(2, unit * 0.45);
       g.stroke(path);
 
-      /* 縣市界。畫在島的裡面（用海岸線裁切），不然分界線會戳到海裡。
-         它是示意不是行政區圖 —— 目的是讓人一眼抓到「大概在哪一區」。 */
+      /* 縣市界（內政部的真實界線）。畫在島的裡面（用海岸線裁切），
+         簡化過的界線端點跟海岸差一點點，不裁的話會有幾根線頭戳到海裡。 */
       g.save();
       g.clip(path);
-      g.strokeStyle = "rgba(40,90,30,.45)";
-      g.lineWidth = Math.max(1, unit * 0.16);
-      g.setLineDash([unit * 0.6, unit * 0.5]);
+      g.strokeStyle = "rgba(255,255,255,.75)";
+      g.lineWidth = Math.max(1, unit * 0.22);
+      g.lineJoin = "round";
       for (const d of countyPaths(box.w, box.h)) g.stroke(new Path2D(d));
-      g.setLineDash([]);
       g.restore();
 
       g.textAlign = "center";

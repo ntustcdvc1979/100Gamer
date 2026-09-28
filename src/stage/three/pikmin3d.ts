@@ -1,37 +1,50 @@
 /* ============================================================
    3D 皮克敏
 
-   照主視覺 group.png 建的模型：水滴形的大頭、亮面的大眼睛、細手細腳，
-   頭頂一根莖接葉子或花。四種的差別也照主視覺：
+   照主視覺 group.png 建的模型：燈泡形的大頭、亮面的大眼睛、細手細腳，
+   頭頂收成一個尖、直接長出一根莖，莖的尾端是葉子或花。
      紅：尖鼻子、葉子        黃：一對大尖耳、花
      藍：嘴巴、葉子          白：紅眼睛沒有眼白、比較瘦、花
 
    世界單位：腳底在 y=0，頭頂的葉子／花大約到 y=1。
 
-   ⚠️ 效能：大廳裡可能有一百隻同時在走。每一隻每一幀都拍一次是
-   一百次算圖，投影幕那台吃不消。所以小隻的用「拍好的圖」：
-   同一隊、同一個姿勢、同一個大小級距只拍一次，之後直接貼。
-   走路的腳步切成 8 格、待機切成 4 格，看起來一樣順。
-   只有大隻的（大廳卡片上的吉祥物，畫面上同時最多四五隻）才每幀現拍。
+   ⚠️ 莖一定要接在頭上。
+   莖和葉子是一起擺動的，擺動的支點必須是「頭頂」—— 支點放在別的地方
+   （例如腳底），轉一點點角度莖的根部就會離開頭頂，看起來葉子飄在半空。
+   頭的輪廓也是一路收尖到莖的粗細，兩者之間沒有縫。
+
+   ⚠️ 動作是連續的，不是一格一格的圖。
+   以前是把幾個姿勢先拍成圖再貼，腳步只有 8 格、待機只有 4 格，
+   看起來像定格動畫。現在整個畫面的皮克敏在同一個 3D 場景裡每幀一起算：
+   同一個零件（例如所有紅皮克敏的左眼）用 InstancedMesh 一次畫完，
+   一百隻也只要一兩百次繪製呼叫，每一隻的姿勢都是當下算的，完全連續。
+
+   用法：遊戲照常呼叫 cartoon.ts 的 pikmin()，它只是「排進佇列」；
+   在要蓋到皮克敏上面的東西（名字、木牌）之前呼叫 flushPikmin()，
+   佇列裡的皮克敏會一次算好貼到 2D 畫布上。stage/main.ts 每幀結束時也會
+   再 flush 一次，漏掉的不會不見。
    ============================================================ */
 
 import * as THREE from "three";
-import { TEAMS, type TeamId } from "../../shared/teams";
-import { blobShadow, framing, getStudio, SHOT_PX, toy, type Framing } from "./studio";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import { TEAMS, TEAM_IDS, type TeamId } from "../../shared/teams";
+import { blobShadow, toy } from "./studio";
 
 export interface Pose3D {
-  /** 走路的相位 0..1（一個完整步伐）。undefined = 站著 */
+  /** 走路的相位（一個完整步伐 = 1，連續往上加）。undefined = 站著 */
   walk?: number;
-  /** 待機呼吸的相位 0..1 */
+  /** 待機呼吸的相位（連續往上加） */
   idle?: number;
-  /** 揮手的相位 0..1。undefined = 不揮手 */
+  /** 揮手的相位。undefined = 不揮手 */
   wave?: number;
   /** 往後仰（拔蘿蔔），弧度，負的是往後 */
   lean?: number;
   /** 兩手往前伸（抓著東西拉） */
   reach?: boolean;
-  /** 眨眼 */
-  blink?: boolean;
+  /** 兩手舉高扛著東西（賽跑扛蘿蔔） */
+  carry?: boolean;
+  /** 眨眼的程度 0..1 */
+  blink?: number;
   /** 戴廚師帽 */
   chef?: boolean;
 }
@@ -40,7 +53,7 @@ export interface Pose3D {
    模型
    ------------------------------------------------------------ */
 
-/** 3D 裡顏色會被色調映射壓暗一點，底色比 2D 的隊伍色再亮一些。 */
+/** 3D 裡顏色會被色調映射壓暗一點，底色比 2D 的隊伍色再飽和一些。 */
 const BODY: Record<TeamId, string> = {
   A: "#E0231A",
   B: "#2F6FEA",
@@ -48,47 +61,55 @@ const BODY: Record<TeamId, string> = {
   D: "#F6F7FA",
 };
 
+/** 莖從頭頂長出來的位置（沒戴帽子時） */
+const STEM_BASE = 0.77;
+
 interface Rig {
-  root: THREE.Group;      // 放在攝影棚裡的最外層（陰影掛這裡，不跟著仰）
-  lean: THREE.Group;      // 以腳底為軸，在畫面平面上前後仰
-  turn: THREE.Group;      // 轉成四分之三側面
-  body: THREE.Group;      // 會上下彈的部分
+  root: THREE.Group; // 放在場景裡的最外層：位置、大小、朝向
+  lean: THREE.Group; // 以腳底為軸，在畫面平面上前後仰
+  turn: THREE.Group; // 轉成四分之三側面
+  body: THREE.Group; // 會上下彈的部分
   legL: THREE.Group;
   legR: THREE.Group;
   armL: THREE.Group;
   armR: THREE.Group;
   eyes: THREE.Object3D[];
   hat: THREE.Group;
+  /** 莖＋葉子／花。支點在頭頂 —— 轉它，根部不會離開頭 */
   sprout: THREE.Group;
+  /** 所有 Mesh，照固定順序。instancing 的每一個零件對應其中一個。 */
+  meshes: THREE.Mesh[];
 }
 
-const rigs = new Map<TeamId, Rig>();
-
-function capsule(r: number, len: number, mat: THREE.Material): THREE.Mesh {
+function limb(r: number, len: number, mat: THREE.Material): THREE.Mesh {
   const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 6, 12), mat);
   // 膠囊預設是站直、中心在原點；改成從原點往下垂，關節好轉
   m.position.y = -len / 2 - r * 0.5;
   return m;
 }
 
+/**
+ * 頭：燈泡形，最寬的地方在中間，往上一路收細，
+ * 頂端收到跟莖一樣細 —— 莖是「長出來」的，不是插上去的。
+ */
 function headGeometry(team: TeamId): THREE.LatheGeometry {
-  // 水滴形：下面圓、上面收成尖，尖端接到莖
-  const w = team === "D" ? 0.88 : team === "C" ? 1.06 : 1;
+  const w = team === "D" ? 0.9 : team === "C" ? 1.05 : 1;
   const pts = [
-    // 主視覺的頭比較像顆飽滿的燈泡：最寬的地方在中間，頂端只收一個小尖
-    [0, 0.33], [0.09, 0.34], [0.14, 0.375], [0.165, 0.44], [0.168, 0.51],
-    [0.155, 0.58], [0.125, 0.64], [0.085, 0.69], [0.04, 0.725], [0.012, 0.745], [0, 0.752],
+    [0, 0.33], [0.085, 0.338], [0.138, 0.37], [0.165, 0.43], [0.17, 0.5],
+    [0.158, 0.57], [0.128, 0.63], [0.088, 0.68], [0.05, 0.72], [0.022, 0.755],
+    [0.011, STEM_BASE + 0.01], [0, STEM_BASE + 0.012],
   ].map(([r, y]) => new THREE.Vector2((r as number) * w, y as number));
   const curve = new THREE.SplineCurve(pts);
-  return new THREE.LatheGeometry(curve.getPoints(40), 48);
+  return new THREE.LatheGeometry(curve.getPoints(48), 48);
 }
 
 function buildRig(team: TeamId): Rig {
   const color = BODY[team];
   const skin = toy(color);
-  const limb = toy(team === "D" ? "#E9ECF2" : new THREE.Color(color).multiplyScalar(0.92).getStyle());
-  const dark = toy("#16161C", { rough: 0.2, coat: 1 });
-  const white = toy("#FFFFFF", { rough: 0.15, coat: 1 });
+  const limbMat = toy(team === "D" ? "#E9ECF2" : new THREE.Color(color).multiplyScalar(0.9).getStyle());
+  const dark = toy("#121218", { rough: 0.15, coat: 1 });
+  const white = toy("#FFFFFF", { rough: 0.12, coat: 1 });
+  const glintMat = toy("#FFFFFF", { rough: 0, coat: 0 });
   const green = toy("#4DB23A", { rough: 0.45, coat: 0.2 });
   const stemMat = toy("#3F8A2C", { rough: 0.5, coat: 0.1 });
 
@@ -97,90 +118,94 @@ function buildRig(team: TeamId): Rig {
   const lean = new THREE.Group();
   root.add(lean);
   const turn = new THREE.Group();
-  turn.rotation.y = 0.3; // 微微側一點，臉朝畫面右邊；轉太多眼睛會跑到側面
   lean.add(turn);
   const body = new THREE.Group();
   turn.add(body);
 
-  // 腳
+  // 腳：細細的腿，末端一個小小的腳掌
   const mkLeg = (x: number): THREE.Group => {
     const g = new THREE.Group();
-    g.position.set(x, 0.16, 0);
-    g.add(capsule(0.026, 0.1, limb));
+    g.position.set(x, 0.165, 0);
+    g.add(limb(0.024, 0.11, limbMat));
+    const foot = new THREE.Mesh(new THREE.SphereGeometry(0.03, 16, 10), limbMat);
+    foot.scale.set(0.9, 0.55, 1.4);
+    foot.position.set(0, -0.15, 0.012);
+    g.add(foot);
     turn.add(g); // 腳不跟身體彈
     return g;
   };
   const legL = mkLeg(-0.042);
   const legR = mkLeg(0.042);
 
-  // 身體
+  // 身體：小小的橢圓，上面接一段細脖子
   const torso = new THREE.Mesh(new THREE.SphereGeometry(0.075, 32, 20), skin);
-  torso.scale.set(1, 1.35, 0.95);
+  torso.scale.set(1, 1.3, 0.95);
   torso.position.y = 0.245;
   body.add(torso);
 
-  // 手
+  // 手：細手臂＋圓圓的手掌
   const mkArm = (x: number): THREE.Group => {
     const g = new THREE.Group();
     g.position.set(x, 0.305, 0);
-    g.add(capsule(0.02, 0.11, limb));
+    g.add(limb(0.019, 0.11, limbMat));
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.026, 14, 10), limbMat);
+    hand.position.y = -0.145;
+    g.add(hand);
     body.add(g);
     return g;
   };
-  const armL = mkArm(-0.068);
-  const armR = mkArm(0.068);
+  const armL = mkArm(-0.066);
+  const armR = mkArm(0.066);
 
   // 頭
-  const head = new THREE.Mesh(headGeometry(team), skin);
-  body.add(head);
+  body.add(new THREE.Mesh(headGeometry(team), skin));
 
-  // 眼睛。臉的表面大概在 z = 0.14 左右。
+  // 眼睛：又大又靠前，兩顆幾乎貼在一起、微微鼓出來
   const eyes: THREE.Object3D[] = [];
   for (const s of [-1, 1]) {
     const eye = new THREE.Group();
-    // 主視覺的眼睛又大又靠前：兩顆幾乎貼在一起、佔掉半張臉
-    eye.position.set(s * 0.058, 0.5, 0.138);
+    eye.position.set(s * 0.06, 0.5, 0.135);
+    eye.rotation.y = s * 0.25;
     if (team === "D") {
       // 白皮克敏：一雙紅眼睛，沒有眼白
-      const iris = new THREE.Mesh(new THREE.SphereGeometry(0.046, 24, 16), toy("#D61F2B", { rough: 0.12, coat: 1 }));
-      iris.scale.z = 0.6;
+      const iris = new THREE.Mesh(new THREE.SphereGeometry(0.05, 24, 16), toy("#D61F2B", { rough: 0.1, coat: 1 }));
+      iris.scale.z = 0.62;
       eye.add(iris);
     } else {
-      const ball = new THREE.Mesh(new THREE.SphereGeometry(0.055, 24, 16), white);
-      ball.scale.z = 0.62;
+      const ball = new THREE.Mesh(new THREE.SphereGeometry(0.058, 24, 16), white);
+      ball.scale.z = 0.66;
       eye.add(ball);
-      const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.032, 20, 14), dark);
-      pupil.position.set(0.008, -0.002, 0.026);
-      pupil.scale.z = 0.5;
+      const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.034, 20, 14), dark);
+      pupil.position.set(0.006, -0.004, 0.028);
+      pupil.scale.z = 0.55;
       eye.add(pupil);
     }
-    const glint = new THREE.Mesh(new THREE.SphereGeometry(0.008, 10, 8), toy("#FFFFFF", { rough: 0, coat: 0 }));
-    glint.scale.setScalar(1.4);
-    glint.position.set(-0.004, 0.016, 0.038);
+    const glint = new THREE.Mesh(new THREE.SphereGeometry(0.011, 10, 8), glintMat);
+    glint.position.set(-0.006, 0.017, 0.042);
     eye.add(glint);
     body.add(eye);
     eyes.push(eye);
   }
 
   if (team === "A") {
-    // 紅皮克敏的尖鼻子
-    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.026, 0.07, 16), skin);
-    nose.rotation.x = Math.PI / 2 + 0.25;
-    nose.position.set(0, 0.43, 0.17);
+    // 紅皮克敏：長長的尖鼻子，微微朝下
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.11, 18), skin);
+    nose.rotation.x = Math.PI / 2 + 0.3;
+    nose.position.set(0, 0.425, 0.195);
     body.add(nose);
   } else if (team === "B") {
-    // 藍皮克敏的嘴巴
-    const mouth = new THREE.Mesh(new THREE.SphereGeometry(0.03, 16, 10), toy("#0E1B45", { rough: 0.3 }));
-    mouth.scale.set(1, 0.55, 0.35);
-    mouth.position.set(0, 0.415, 0.158);
+    // 藍皮克敏：嘴巴
+    const mouth = new THREE.Mesh(new THREE.SphereGeometry(0.034, 16, 10), toy("#0E1B45", { rough: 0.3 }));
+    mouth.scale.set(1, 0.5, 0.35);
+    mouth.position.set(0, 0.405, 0.16);
     body.add(mouth);
   } else if (team === "C") {
-    // 黃皮克敏的一對大尖耳
+    // 黃皮克敏：一對往兩邊翹的大尖耳
     for (const s of [-1, 1]) {
-      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.22, 20), skin);
-      ear.scale.z = 0.35;
-      ear.position.set(s * 0.19, 0.56, 0);
-      ear.rotation.z = -s * 1.05;
+      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.26, 20), skin);
+      ear.scale.z = 0.32;
+      ear.position.set(s * 0.21, 0.57, -0.01);
+      ear.rotation.z = -s * 1.1;
       body.add(ear);
     }
   }
@@ -199,42 +224,46 @@ function buildRig(team: TeamId): Rig {
   hat.visible = false;
   body.add(hat);
 
-  // 莖＋葉子或花
+  // 莖＋葉子或花。整組的原點就是頭頂，擺動時繞著頭頂轉。
   const sprout = new THREE.Group();
+  sprout.position.y = STEM_BASE;
   const stemCurve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(0, 0.74, 0),
-    new THREE.Vector3(0.012, 0.84, 0),
-    new THREE.Vector3(0.045, 0.93, -0.01),
-    new THREE.Vector3(0.075, 0.97, -0.015),
+    new THREE.Vector3(0, -0.012, 0), // 從頭頂裡面一點點開始，保證接得上
+    new THREE.Vector3(0.006, 0.07, 0),
+    new THREE.Vector3(0.03, 0.15, -0.008),
+    new THREE.Vector3(0.07, 0.2, -0.014),
   ]);
-  sprout.add(new THREE.Mesh(new THREE.TubeGeometry(stemCurve, 16, 0.009, 8), stemMat));
-  const tip = new THREE.Vector3(0.075, 0.97, -0.015);
+  sprout.add(new THREE.Mesh(new THREE.TubeGeometry(stemCurve, 20, 0.0095, 8), stemMat));
+  const tip = new THREE.Vector3(0.07, 0.2, -0.014);
 
   if (TEAMS[team].sprout === "leaf") {
-    const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.1, 28, 16), green);
-    leaf.scale.set(1, 0.14, 0.5);
-    leaf.position.set(tip.x + 0.07, tip.y + 0.025, tip.z);
-    leaf.rotation.set(0.35, 0, 0.35);
+    // 葉子：一片長橢圓，根部接在莖的尾端
+    const leaf = new THREE.Group();
+    leaf.position.copy(tip);
+    leaf.rotation.set(0.35, 0, 0.3);
+    const blade = new THREE.Mesh(new THREE.SphereGeometry(0.1, 28, 16), green);
+    blade.scale.set(1, 0.13, 0.48);
+    blade.position.x = 0.09; // 葉片的根部剛好在 tip 上
+    leaf.add(blade);
+    const vein = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 0.18, 6), stemMat);
+    vein.rotation.z = Math.PI / 2;
+    vein.position.set(0.09, 0.012, 0);
+    leaf.add(vein);
     sprout.add(leaf);
-    const vein = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 0.17, 6), stemMat);
-    vein.rotation.z = Math.PI / 2 + 0.35;
-    vein.position.copy(leaf.position).add(new THREE.Vector3(0, 0.01, 0.01));
-    sprout.add(vein);
   } else {
     const flower = new THREE.Group();
-    flower.position.copy(tip).add(new THREE.Vector3(0.01, 0.02, 0));
-    // 花朝著鏡頭斜上方開
-    flower.rotation.set(1.1, 0, 0.2);
+    flower.position.copy(tip);
+    flower.rotation.set(1.1, 0, 0.2); // 朝著鏡頭斜上方開
     const petal = toy("#FFFFFF", { rough: 0.5, coat: 0.2 });
     for (let k = 0; k < 5; k++) {
       const a = (k / 5) * Math.PI * 2;
-      const p = new THREE.Mesh(new THREE.SphereGeometry(0.04, 16, 10), petal);
+      const p = new THREE.Mesh(new THREE.SphereGeometry(0.042, 16, 10), petal);
       p.scale.set(1, 0.3, 0.55);
-      p.position.set(Math.cos(a) * 0.045, 0, Math.sin(a) * 0.045);
+      p.position.set(Math.cos(a) * 0.046, 0, Math.sin(a) * 0.046);
       p.rotation.y = -a;
       flower.add(p);
     }
-    const center = new THREE.Mesh(new THREE.SphereGeometry(0.022, 16, 12), toy("#FFC21F", { rough: 0.5 }));
+    const center = new THREE.Mesh(new THREE.SphereGeometry(0.024, 16, 12), toy("#FFC21F", { rough: 0.5 }));
     center.position.y = 0.01;
     center.scale.y = 0.6;
     flower.add(center);
@@ -242,169 +271,216 @@ function buildRig(team: TeamId): Rig {
   }
   body.add(sprout);
 
-  return { root, lean, turn, body, legL, legR, armL, armR, eyes, hat, sprout };
-}
-
-function rigFor(team: TeamId): Rig {
-  let r = rigs.get(team);
-  if (!r) {
-    r = buildRig(team);
-    rigs.set(team, r);
-  }
-  return r;
+  const meshes: THREE.Mesh[] = [];
+  root.traverse((o) => {
+    if (o instanceof THREE.Mesh) meshes.push(o);
+  });
+  return { root, lean, turn, body, legL, legR, armL, armR, eyes, hat, sprout, meshes };
 }
 
 /** 把姿勢套到骨架上。所有角度都在這裡，要調手感改這一支。 */
-function applyPose(r: Rig, p: Pose3D): void {
+function applyPose(r: Rig, p: Pose3D, face: 1 | -1): void {
   const walk = p.walk;
   const swing = walk === undefined ? 0 : Math.sin(walk * Math.PI * 2);
   const idle = p.idle ?? 0;
+
+  // 朝右或朝左：轉身而不是鏡射（鏡射會把模型翻成裡外相反）
+  r.turn.rotation.y = face * 0.32;
 
   r.body.position.y =
     walk === undefined ? Math.sin(idle * Math.PI * 2) * 0.008 : Math.abs(swing) * 0.03;
   r.legL.rotation.x = swing * 0.6;
   r.legR.rotation.x = -swing * 0.6;
 
-  // 手：預設微微張開往下垂
+  // 手：預設微微張開往下垂，走路時前後擺
   r.armL.rotation.set(-swing * 0.5, 0, -0.35);
   r.armR.rotation.set(swing * 0.5, 0, 0.35);
   if (p.reach) {
-    // 兩手往前伸，像是抓著東西
     r.armL.rotation.set(-1.25, 0, -0.15);
     r.armR.rotation.set(-1.25, 0, 0.15);
+  }
+  if (p.carry) {
+    // 兩手舉高過頭，扛著東西
+    r.armL.rotation.set(0, 0, -2.75 + swing * 0.08);
+    r.armR.rotation.set(0, 0, 2.75 + swing * 0.08);
   }
   if (p.wave !== undefined) {
     r.armR.rotation.set(0, 0, 2.5 + Math.sin(p.wave * Math.PI * 2) * 0.35);
   }
 
-  r.lean.rotation.z = -(p.lean ?? 0); // 負 lean = 往畫面左後方仰
-  // 莖會跟著身體擺，走路時往後甩
-  r.sprout.rotation.z = walk === undefined ? Math.sin(idle * Math.PI * 2) * 0.05 : -0.08 + swing * 0.04;
-  for (const e of r.eyes) e.scale.y = p.blink ? 0.12 : 1;
+  // 往後仰：「後」是背對面向的那一邊
+  r.lean.rotation.z = -(p.lean ?? 0) * face;
+
+  // 莖繞著頭頂擺：待機時輕輕晃，走路時往後甩
+  r.sprout.position.y = p.chef ? STEM_BASE + 0.06 : STEM_BASE;
+  r.sprout.rotation.z =
+    walk === undefined ? Math.sin(idle * Math.PI * 2) * 0.12 : -0.18 + swing * 0.1;
+  r.sprout.rotation.x = walk === undefined ? Math.sin(idle * Math.PI * 1.3) * 0.06 : 0;
+
+  const lid = 1 - (p.blink ?? 0) * 0.9;
+  for (const e of r.eyes) e.scale.y = lid;
   r.hat.visible = p.chef === true;
 }
 
 /* ------------------------------------------------------------
-   拍照與快取
+   一整個畫面的皮克敏：一個場景、一次算圖
    ------------------------------------------------------------ */
 
-/** 攝影機框住的範圍：腳底往下一點到頭頂的花往上一點，加上耳朵與後仰的空間。 */
-const VIEW_H = 1.45;
-let frame: Framing | null = null;
-function getFraming(): Framing {
-  frame ??= framing(VIEW_H, 0.5);
-  return frame;
+interface Queued {
+  x: number;
+  y: number;
+  h: number;
+  team: TeamId;
+  pose: Pose3D;
+  face: 1 | -1;
 }
 
-const cache = new Map<string, HTMLCanvasElement>();
-/** 這一幀已經新拍了幾張。太多就先用 2D 頂著，下一幀再補 —— 不要一次卡住整個畫面。 */
-let shotsThisFrame = 0;
-let frameStamp = -1;
-const MAX_NEW_PER_FRAME = 10;
-/** 快取上限。大約 300 張 256px 的圖，七八十 MB。 */
-const MAX_CACHE = 300;
+/** 每一隊最多幾隻。一百個人分四隊，一隊最多也就三四十隻，留寬一點。 */
+const MAX_PER_TEAM = 160;
 
-/** 換關卡時清掉，不同關卡用到的姿勢差很多，留著只是佔記憶體。 */
-export function clearPikminCache(): void {
-  cache.clear();
+interface Crowd {
+  renderer: THREE.WebGLRenderer;
+  scene: THREE.Scene;
+  camera: THREE.OrthographicCamera;
+  rigs: Record<TeamId, Rig>;
+  /** 每一隊、每一個零件一個 InstancedMesh */
+  parts: Record<TeamId, THREE.InstancedMesh[]>;
+  queue: Queued[];
+  w: number;
+  h: number;
 }
 
-/**
- * 畫一隻 3D 皮克敏。(x, y) 是腳底，h 是整隻（腳底到頭頂的花）的高度。
- * @returns false = 這一幀畫不出來（沒有 WebGL，或新拍的額度用完），呼叫端改畫 2D。
- */
-export function drawPikmin3D(
-  g: CanvasRenderingContext2D,
-  x: number, y: number, h: number,
-  team: TeamId,
-  pose: Pose3D,
-  face: 1 | -1,
-  now: number,
-): boolean {
-  const studio = getStudio();
-  if (!studio) return false;
-  if (now !== frameStamp) {
-    frameStamp = now;
-    shotsThisFrame = 0;
+let crowd: Crowd | null | undefined;
+
+function getCrowd(): Crowd | null {
+  if (crowd !== undefined) return crowd;
+  try {
+    crowd = createCrowd();
+  } catch (e) {
+    console.warn("[p100] 拿不到 WebGL，皮克敏改用 2D 畫法：", e);
+    crowd = null;
   }
+  return crowd;
+}
 
-  const fr = getFraming();
-  // 圖裡「腳底到頭頂」佔 pxPerUnit 像素，要放大到 h
-  const scale = h / fr.pxPerUnit;
-  const drawSize = SHOT_PX * scale;
+function createCrowd(): Crowd {
+  const canvas = document.createElement("canvas");
+  const renderer = new THREE.WebGLRenderer({
+    canvas,
+    alpha: true,
+    antialias: true,
+    preserveDrawingBuffer: true,
+    premultipliedAlpha: false,
+  });
+  renderer.setClearColor(0x000000, 0);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  // ACES 讓亮部柔和收邊，塑膠公仔的質感主要就靠這個
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.92;
 
-  // 大隻的每幀現拍（畫面上同時只有幾隻），小隻的用快取
-  const live = drawSize > 300;
-  let img: CanvasImageSource;
+  const scene = new THREE.Scene();
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  pmrem.dispose();
 
-  if (live) {
-    const r = rigFor(team);
-    applyPose(r, pose);
-    img = studio.shot(r.root, fr.camera);
-  } else {
-    const px = drawSize > 140 ? 256 : 128;
-    const key = poseKey(team, pose, px);
-    let c = cache.get(key);
-    if (!c) {
-      if (shotsThisFrame >= MAX_NEW_PER_FRAME) return false;
-      shotsThisFrame++;
-      const r = rigFor(team);
-      // 拍的是量化過的姿勢 —— 快取的鍵是量化過的，拍的內容也要一致
-      applyPose(r, quantizePose(pose));
-      const shot = studio.shot(r.root, fr.camera);
-      c = document.createElement("canvas");
-      c.width = c.height = px;
-      const cg = c.getContext("2d") as CanvasRenderingContext2D;
-      cg.imageSmoothingQuality = "high";
-      cg.drawImage(shot, 0, 0, px, px);
-      if (cache.size >= MAX_CACHE) {
-        const first = cache.keys().next().value;
-        if (first !== undefined) cache.delete(first);
-      }
-      cache.set(key, c);
-    }
-    img = c;
+  // 光：跟主視覺一樣的戶外柔光。天光＋左前上方的暖主光＋右後方的冷輪廓光。
+  scene.add(new THREE.HemisphereLight(0xdcefff, 0x7a9a55, 0.45));
+  const key = new THREE.DirectionalLight(0xfff1dc, 2.0);
+  key.position.set(-1.2, 2.2, 2.6);
+  scene.add(key);
+  const rim = new THREE.DirectionalLight(0xcfe8ff, 1.8);
+  rim.position.set(1.8, 1.4, -2.2);
+  scene.add(rim);
+  const fill = new THREE.DirectionalLight(0xffffff, 0.3);
+  fill.position.set(2, 0.5, 2);
+  scene.add(fill);
+
+  const camera = new THREE.OrthographicCamera(0, 1, 0, -1, -20000, 20000);
+  camera.position.z = 10000;
+
+  const rigs = {} as Record<TeamId, Rig>;
+  const parts = {} as Record<TeamId, THREE.InstancedMesh[]>;
+  for (const team of TEAM_IDS) {
+    const rig = buildRig(team);
+    rigs[team] = rig;
+    parts[team] = rig.meshes.map((m) => {
+      const inst = new THREE.InstancedMesh(m.geometry, m.material, MAX_PER_TEAM);
+      inst.count = 0;
+      inst.frustumCulled = false;
+      inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      scene.add(inst);
+      return inst;
+    });
   }
+  return { renderer, scene, camera, rigs, parts, queue: [], w: 0, h: 0 };
+}
 
-  const left = x - fr.footX * scale;
-  const top = y - fr.footY * scale;
-  g.save();
-  if (face === -1) {
-    // 朝左：以腳底為中心水平翻過來
-    g.translate(x, 0);
-    g.scale(-1, 1);
-    g.translate(-x, 0);
+/** 一個零件看不看得到：它和它所有的上層都要是 visible */
+function visibleChain(o: THREE.Object3D, stop: THREE.Object3D): boolean {
+  for (let cur: THREE.Object3D | null = o; cur && cur !== stop; cur = cur.parent) {
+    if (!cur.visible) return false;
   }
-  g.drawImage(img, left, top, drawSize, drawSize);
-  g.restore();
   return true;
 }
 
-/** 把連續的姿勢切成有限幾格，快取才用得起來。 */
-function poseKey(team: TeamId, p: Pose3D, px: number): string {
-  const q = (v: number | undefined, n: number): string =>
-    v === undefined ? "-" : String(Math.floor((((v % 1) + 1) % 1) * n));
-  return [
-    team, px,
-    q(p.walk, 8),
-    p.walk === undefined ? q(p.idle, 4) : "-",
-    q(p.wave, 6),
-    p.lean === undefined ? "-" : String(Math.round(p.lean / 0.07)),
-    p.reach ? "r" : "",
-    p.blink ? "b" : "",
-    p.chef ? "c" : "",
-  ].join("|");
+const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
+
+/**
+ * 排一隻皮克敏進這一幀的佇列。(x, y) 是腳底（畫布像素），h 是整隻的高度。
+ * @returns false = 沒有 WebGL，呼叫端要自己畫 2D 版。
+ */
+export function queuePikmin3D(x: number, y: number, h: number, team: TeamId, pose: Pose3D, face: 1 | -1): boolean {
+  const c = getCrowd();
+  if (!c) return false;
+  c.queue.push({ x, y, h, team, pose, face });
+  return true;
 }
 
-/** 快取裡的格子要跟 poseKey 對得上：把連續值先量化，再拍。 */
-export function quantizePose(p: Pose3D): Pose3D {
-  const snap = (v: number | undefined, n: number): number | undefined =>
-    v === undefined ? undefined : Math.floor((((v % 1) + 1) % 1) * n) / n;
-  return {
-    ...p,
-    walk: snap(p.walk, 8),
-    idle: p.walk === undefined ? snap(p.idle, 4) : undefined,
-    wave: snap(p.wave, 6),
-    lean: p.lean === undefined ? undefined : Math.round(p.lean / 0.07) * 0.07,
-  };
+/** 把佇列裡的皮克敏一次算好，貼到 2D 畫布上。 */
+export function flushPikmin3D(g: CanvasRenderingContext2D): void {
+  const c = crowd;
+  if (!c || c.queue.length === 0) return;
+  const w = g.canvas.width;
+  const h = g.canvas.height;
+  if (c.w !== w || c.h !== h) {
+    c.renderer.setSize(w, h, false);
+    c.camera.left = 0;
+    c.camera.right = w;
+    c.camera.top = 0;
+    c.camera.bottom = -h;
+    c.camera.updateProjectionMatrix();
+    c.w = w;
+    c.h = h;
+  }
+
+  const counts: Record<string, number> = {};
+  for (const t of TEAM_IDS) counts[t] = 0;
+
+  for (const q of c.queue) {
+    const n = counts[q.team] ?? 0;
+    if (n >= MAX_PER_TEAM) continue;
+    const rig = c.rigs[q.team];
+    applyPose(rig, q.pose, q.face);
+    // 畫布的 y 往下、3D 的 y 往上；越下面的越靠近鏡頭（z 越大），前後才蓋得對
+    rig.root.position.set(q.x, -q.y, q.y);
+    rig.root.scale.setScalar(q.h);
+    // 稍微往鏡頭傾一點，看得到一點頭頂和腳底的影子
+    rig.root.rotation.x = 0.16;
+    rig.root.updateMatrixWorld(true);
+    const parts = c.parts[q.team];
+    rig.meshes.forEach((m, k) => {
+      parts[k]?.setMatrixAt(n, visibleChain(m, rig.root) ? m.matrixWorld : HIDDEN);
+    });
+    counts[q.team] = n + 1;
+  }
+
+  for (const t of TEAM_IDS) {
+    for (const inst of c.parts[t]) {
+      inst.count = counts[t] ?? 0;
+      inst.instanceMatrix.needsUpdate = true;
+    }
+  }
+  c.renderer.render(c.scene, c.camera);
+  g.drawImage(c.renderer.domElement, 0, 0, w, h);
+  c.queue.length = 0;
 }
