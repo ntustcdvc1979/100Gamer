@@ -395,8 +395,10 @@ export interface PikminPose {
   face?: 1 | -1;
   /** 身體往後傾（拔蘿蔔用），弧度 */
   lean?: number;
-  /** 舉手揮動 */
+  /** 慶祝：舉手歡呼或揮手（每一隻自己決定是哪一種），手是慢慢舉起來的 */
   wave?: boolean;
+  /** 頭上長什麼：0 葉子、1 花苞、2 花。沒給就照 phase 隨機固定一種 */
+  bloom?: 0 | 1 | 2;
   /** 戴廚師帽（火候達人） */
   chef?: boolean;
   /** 兩手往前伸，抓著東西拉（拔蘿蔔） */
@@ -417,6 +419,10 @@ export function pikmin(
 ): void {
   const t = pose.t + (pose.phase ?? 0) * 1000;
   const walk = pose.walk ?? 0;
+  /* 這一隻是誰：由 phase 換算的整數。呼叫端本來就會給每隻不同的 phase
+     （不然會一起眨眼），拿它當身分證剛好 —— 同一隻每幀都一樣，
+     頭上長葉子、花苞還是花也就固定不會跳。 */
+  const key = Math.floor(Math.abs(Math.sin((pose.phase ?? 0) * 91.7 + 3.1) * 1e6));
   // 眨眼：每 3.8 秒一次，閉上再張開大約 0.16 秒，是連續的不是一格一格
   const bt = t % 3800;
   const blink = bt < 160 ? Math.sin((bt / 160) * Math.PI) : 0;
@@ -425,7 +431,10 @@ export function pikmin(
     {
       walk: walk > 0 ? t / (520 - walk * 240) : undefined,
       idle: t / 2400,
-      wave: pose.wave ? t / 700 : undefined,
+      celebrate: pose.wave,
+      key,
+      time: pose.t,
+      bloom: pose.bloom ?? ((key % 3) as 0 | 1 | 2),
       lean: pose.lean,
       reach: pose.reach,
       carry: pose.carry,

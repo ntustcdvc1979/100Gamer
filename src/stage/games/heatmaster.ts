@@ -36,7 +36,9 @@
 
 import type { PlayerAction } from "../../net/schema";
 import { DISPLAY_ORDER, TEAMS } from "../../shared/teams";
-import { bowlSprite, fryerSprite, ovenSprite, panSprite, wokSprite } from "../three/props";
+import {
+  bowlSprite, cabbageBitSprite, foodSprite, fryerSprite, ovenSprite, panSprite, shakerSprite, wokSprite,
+} from "../three/props";
 import { bigText, card, flushPikmin, font, pikmin, roundRect, scenery, shade, woodSign } from "../cartoon";
 import type { Game, GameContext } from "./types";
 
@@ -51,6 +53,8 @@ interface Dish {
   verb: string;
   /** 用哪一個 3D 道具。沒寫就是平底鍋。 */
   prop?: "fryer" | "wok";
+  /** 現場超過三分之二的人做了動作之後，投影幕上演的那段動畫 */
+  anim: "slide" | "basket" | "lid" | "flip" | "toss" | "sprinkle" | "glow" | "serve";
 }
 
 /**
@@ -62,14 +66,14 @@ interface Dish {
  *   端湯      唯一一道不比時間點的，比的是「撐到最後還剩多少湯」
  */
 const DISHES: Dish[] = [
-  { name: "煎蛋餅", mode: "timing", seconds: 7, gesture: "lift", verb: "把手機提起來（起鍋）" },
-  { name: "炸薯條起鍋", mode: "timing", seconds: 6, gesture: "lift", verb: "把手機提起來", prop: "fryer" },
-  { name: "掀鍋蓋", mode: "timing", seconds: 15, gesture: "lift", verb: "把手機提起來" },
-  { name: "翻素火腿", mode: "timing", seconds: 10, gesture: "flip", verb: "把手機翻面" },
-  { name: "炒高麗菜", mode: "timing", seconds: 12, gesture: "flip", verb: "把手機翻面（翻動）", prop: "wok" },
-  { name: "撒胡椒粉", mode: "timing", seconds: 5, gesture: "shake", verb: "晃手機" },
-  { name: "烤箱焗烤", mode: "timing", seconds: 8, gesture: "torch", verb: "按鈕開烤箱燈" },
-  { name: "端湯上桌", mode: "soup", seconds: 20, gesture: "tilt", verb: "傾斜手機保持平衡，別把湯灑了" },
+  { name: "煎蛋餅", mode: "timing", seconds: 7, gesture: "lift", verb: "把手機提起來（起鍋）", anim: "slide" },
+  { name: "炸薯條起鍋", mode: "timing", seconds: 6, gesture: "lift", verb: "把手機提起來", prop: "fryer", anim: "basket" },
+  { name: "掀鍋蓋", mode: "timing", seconds: 15, gesture: "lift", verb: "把手機提起來", anim: "lid" },
+  { name: "翻素火腿", mode: "timing", seconds: 10, gesture: "flip", verb: "把手機翻面", anim: "flip" },
+  { name: "炒高麗菜", mode: "timing", seconds: 12, gesture: "flip", verb: "把手機翻面（翻動）", prop: "wok", anim: "toss" },
+  { name: "撒胡椒粉", mode: "timing", seconds: 5, gesture: "shake", verb: "晃手機", anim: "sprinkle" },
+  { name: "烤箱焗烤", mode: "timing", seconds: 8, gesture: "torch", verb: "按鈕開烤箱燈", anim: "glow" },
+  { name: "端湯上桌", mode: "soup", seconds: 20, gesture: "tilt", verb: "傾斜手機保持平衡，別把湯灑了", anim: "serve" },
 ];
 
 /** 鍋子裡每一道菜的顏色（照 DISHES 的順序）。焗烤和端湯各自有道具，不用這裡。 */
@@ -80,6 +84,8 @@ const FOOD = ["#F2B21C", "#E39A1E", "#C9A46A", "#EE7C86", "#4FB22E", "#E3C79A"];
 const ZERO_AT = 5;
 /** 開始之後最多等這麼久，沒做動作就算沒交 */
 const GRACE_MS = 8000;
+/** 做了動作的人超過現場的這個比例，投影幕就開始演這道菜的動作動畫 */
+const ACTION_SHARE = 2 / 3;
 /** 秒數與進度圈在幾秒內淡掉 */
 const HIDE_AFTER = 2;
 
@@ -89,6 +95,8 @@ export function createHeatMasterGame(): Game {
   let startedAt = 0;
   /** 這一題誰在第幾毫秒做動作 */
   const acts = new Map<string, { ms: number; score: number; by: "motion" | "tap" }>();
+  /** 動作動畫從什麼時候開始演（0 = 還沒到三分之二） */
+  let actionAt = 0;
 
   function dish(): Dish {
     return DISHES[index] as Dish;
@@ -126,6 +134,7 @@ export function createHeatMasterGame(): Game {
   function load(ctx: GameContext): void {
     running = false;
     acts.clear();
+    actionAt = 0;
     const d = dish();
     announce(
       ctx,
@@ -208,6 +217,12 @@ export function createHeatMasterGame(): Game {
       const cy = h * 0.5;
       const rr = Math.min(w, h) * 0.2;
       const doneShare = ctx.field.actors.size > 0 ? acts.size / ctx.field.actors.size : 0;
+      /* 超過三分之二的人做了動作：鍋子自己動起來（翻、起鍋、炒、撒…），
+         全場看到「大家一起把菜做出來了」。只觸發一次，演到換下一道菜為止。 */
+      if (actionAt === 0 && acts.size > 0 && doneShare >= ACTION_SHARE) {
+        actionAt = now;
+        ctx.sfx("cheer");
+      }
 
       /* 3D 道具：平底鍋／烤箱／湯碗。狀態（熟度、鍋蓋、烤箱亮度、湯剩多少）
          量化成幾格各拍一次，見 three/props.ts。拿不到 WebGL 就畫下面的 2D 版。 */
@@ -249,7 +264,11 @@ export function createHeatMasterGame(): Game {
             g.fill();
           }
         }
-        g.drawImage(propImg, cx - S / 2, cy - S * 0.52, S, S);
+        if (actionAt > 0) {
+          drawAction(g, d, FOOD[index] ?? "#F2C94C", (now - actionAt) / 1000, { cx, cy, rr, S, unit, heat });
+        } else {
+          g.drawImage(propImg, cx - S / 2, cy - S * 0.52, S, S);
+        }
         if (d.prop === "fryer" && running) {
           // 油鍋滋滋作響：油面上一顆一顆冒起來、散掉的小油煙
           for (let k = 0; k < 10; k++) {
@@ -445,7 +464,8 @@ export function createHeatMasterGame(): Game {
         const px = cx + side * (rr * 1.9 + (i % 2) * unit * 11);
         pikmin(g, px, counterY + unit * 1, unit * 22, id, {
           t: now, phase: i, chef: true, face: side === -1 ? 1 : -1,
-          wave: !running && acts.size > 0 && i === Math.floor(now / 900) % 4,
+          // 動作動畫演起來的時候四隻一起歡呼；結束後輪流揮手
+          wave: actionAt > 0 || (!running && acts.size > 0 && i === Math.floor(now / 900) % 4),
         });
       });
 
@@ -524,6 +544,7 @@ export function createHeatMasterGame(): Game {
       if (on) {
         startedAt = performance.now();
         acts.clear();
+        actionAt = 0;
         ctx.sfx("start");
       }
       announce(ctx, on ? startHint() : "暫停");
@@ -548,4 +569,248 @@ export function createHeatMasterGame(): Game {
       return false;
     },
   };
+}
+
+/* ============================================================
+   動作動畫
+
+   現場三分之二的人都做了動作之後，投影幕上的鍋子自己動起來。
+   道具都是 three/props.ts 拍好的 3D 圖，這裡只是在 2D 上移動、
+   旋轉、翻面它們 —— 不用每幀重新算 3D，一百支手機在送資料時也不會卡。
+
+   座標：道具圖的正中間就是鍋子裡菜的中心（見 props.ts 的 PAN_CAM），
+   所以「以圖中心為軸」轉，鍋子就是繞著自己轉。
+   ============================================================ */
+
+interface Stage {
+  cx: number;
+  cy: number;
+  rr: number;
+  /** 道具圖的邊長 */
+  S: number;
+  unit: number;
+  heat: number;
+}
+
+function ease(x: number): number {
+  const t = Math.max(0, Math.min(1, x));
+  return t * t * (3 - 2 * t);
+}
+
+/** 以 (x, y) 為中心畫一張正方形的圖，可以轉、縮放、上下壓扁（翻面用） */
+function sprite(
+  g: CanvasRenderingContext2D, img: HTMLCanvasElement | null,
+  x: number, y: number, size: number, rot = 0, squash = 1,
+): void {
+  if (!img) return;
+  g.save();
+  g.translate(x, y);
+  g.rotate(rot);
+  g.scale(1, squash);
+  g.drawImage(img, -size / 2, -size / 2, size, size);
+  g.restore();
+}
+
+function drawAction(g: CanvasRenderingContext2D, d: Dish, food: string, u: number, st: Stage): void {
+  const { cx, cy, rr, S, unit, heat } = st;
+  const tau = Math.PI * 2;
+  // 道具圖中心（= 鍋中菜的中心）
+  const oy = cy - S * 0.02;
+
+  switch (d.anim) {
+    case "slide": {
+      /* 煎蛋餅起鍋：鍋子提起來往左斜，蛋餅滑出去落到盤子上。只演一次，演完停在盤子上。 */
+      const lift = ease(u / 0.45) * (1 - ease((u - 1.4) / 0.5));
+      const px = cx - rr * 1.3;
+      const py = cy + rr * 0.5;
+      // 盤子
+      g.fillStyle = "rgba(0,0,0,.18)";
+      g.beginPath();
+      g.ellipse(px, py + rr * 0.06, rr * 0.58, rr * 0.16, 0, 0, tau);
+      g.fill();
+      g.fillStyle = "#FFFFFF";
+      g.beginPath();
+      g.ellipse(px, py, rr * 0.58, rr * 0.16, 0, 0, tau);
+      g.fill();
+      g.strokeStyle = "#D5DCE8";
+      g.lineWidth = unit * 0.3;
+      g.beginPath();
+      g.ellipse(px, py, rr * 0.44, rr * 0.11, 0, 0, tau);
+      g.stroke();
+
+      const panX = cx - rr * 0.08 * lift;
+      const panY = oy - rr * 0.3 * lift;
+      const tilt = -0.3 * lift;
+      const k = ease((u - 0.35) / 0.75);
+      sprite(g, panSprite(512, food, heat, 0, false, k > 0), panX, panY, S, tilt);
+      if (k > 0) {
+        // 沿著一條小弧線滑到盤子上，邊滑邊縮到盤子的大小
+        const x = panX + (px - panX) * k;
+        const y = panY + (py - rr * 0.02 - panY) * k - Math.sin(k * Math.PI) * rr * 0.35;
+        sprite(g, foodSprite(512, "egg", false), x, y, S * (1 - k * 0.62), tilt * (1 - k) - Math.sin(k * Math.PI) * 0.4);
+      }
+      if (k >= 1) {
+        // 盛好了：熱騰騰地冒煙
+        for (let j = 0; j < 4; j++) {
+          const a = (u * 0.6 + j / 4) % 1;
+          g.fillStyle = `rgba(255,255,255,${0.6 * (1 - a)})`;
+          g.beginPath();
+          g.arc(px + (j - 1.5) * rr * 0.12 + Math.sin(a * 5 + j) * unit, py - rr * 0.08 - a * rr * 0.6, unit * (0.8 + a * 1.6), 0, tau);
+          g.fill();
+        }
+      }
+      break;
+    }
+
+    case "basket": {
+      /* 炸薯條起鍋：籃子整個撈起來，上下抖掉油，油一滴一滴滴回鍋裡 */
+      const up = Math.sin(u * tau * 3.5) > 0;
+      sprite(g, fryerSprite(512, up ? 1 : 0.8, heat), cx, oy, S);
+      for (let k = 0; k < 9; k++) {
+        const a = (u * 1.6 + k / 9) % 1;
+        const x = cx - rr * 0.32 + (((k * 37) % 9) / 8) * rr * 0.64;
+        const y = cy - rr * 0.15 + a * rr * 0.28;
+        g.fillStyle = `rgba(240,170,40,${0.9 * (1 - a)})`;
+        g.beginPath();
+        g.ellipse(x, y, unit * 0.35, unit * 0.6, 0, 0, tau);
+        g.fill();
+      }
+      break;
+    }
+
+    case "lid": {
+      /* 掀鍋蓋：蓋子整個掀開、喀啦喀啦跳，大團蒸氣衝上來 */
+      // 蓋子不要掀到最高：再高就會蓋住上面的秒數框
+      const rattle = Math.sin(u * tau * 4.5) > 0 ? 0.75 : 0.6;
+      sprite(g, panSprite(512, food, heat, rattle, false), cx, oy, S);
+      for (let k = 0; k < 12; k++) {
+        const a = (u * 0.7 + k / 12) % 1;
+        const side = ((k * 5) % 12) / 11 - 0.5;
+        g.fillStyle = `rgba(255,255,255,${0.7 * (1 - a)})`;
+        g.beginPath();
+        g.arc(cx + side * rr * (0.6 + a * 0.8), oy - rr * 0.2 - a * rr * 1.1, unit * (1.5 + a * 4), 0, tau);
+        g.fill();
+      }
+      break;
+    }
+
+    case "flip": {
+      /* 翻素火腿：鍋子往上一頂，火腿片在空中翻一圈落回鍋裡，一直重複。
+         翻過來看到的是煎過、有烤痕的那一面。 */
+      const P = 1.4;
+      const n = Math.floor(u / P);
+      const p = (u % P) / P;
+      const jerk = p < 0.22 ? -Math.sin((p / 0.22) * Math.PI) * rr * 0.1 : 0;
+      sprite(g, panSprite(512, food, heat, 0, false, true), cx, oy + jerk, S);
+      const q = ease((p - 0.1) / 0.75);
+      const hgt = 4 * q * (1 - q) * rr * 0.9;
+      const theta = (n + q) * Math.PI;
+      const c = Math.cos(theta);
+      sprite(
+        g, foodSprite(512, "ham", c < 0), cx, oy - hgt + jerk * (1 - q), S,
+        Math.sin(theta) * 0.12, Math.max(0.06, Math.abs(c)),
+      );
+      break;
+    }
+
+    case "toss": {
+      /* 炒高麗菜：炒鍋前後甩，葉子一片一片飛起來再落回鍋裡 */
+      const P = 1.1;
+      const p = (u % P) / P;
+      const swing = Math.sin(p * tau);
+      sprite(g, wokSprite(512, heat), cx + swing * rr * 0.05, oy - Math.max(0, swing) * rr * 0.05, S, -swing * 0.07);
+      for (let k = 0; k < 8; k++) {
+        const q = (p - 0.05 - k * 0.02) / 0.75;
+        if (q <= 0 || q >= 1) continue;
+        const spread = (k - 3.5) * rr * 0.1;
+        const x = cx + spread * (0.5 + q * 1.1);
+        const y = oy - 4 * q * (1 - q) * rr * (0.45 + ((k * 7) % 5) * 0.07);
+        sprite(g, cabbageBitSprite(256, k % 4), x, y, rr * 0.6, q * tau * (k % 2 ? 0.8 : -0.8));
+      }
+      break;
+    }
+
+    case "sprinkle": {
+      /* 撒胡椒粉：胡椒罐倒過來在鍋子上方抖，黑色的粉一直掉進鍋裡 */
+      sprite(g, panSprite(512, food, heat, 0, true), cx, oy, S);
+      const size = rr * 0.95;
+      const wob = Math.sin(u * tau * 5);
+      const sx = cx + rr * 0.15 + wob * rr * 0.05;
+      const sy = cy - rr * 0.78;
+      const rot = Math.PI * 0.82 + wob * 0.18;
+      // 罐口（蓋子）在罐子中心往「上」0.34 個邊長，跟著罐子一起轉
+      const capX = sx + Math.sin(rot) * size * 0.34;
+      const capY = sy - Math.cos(rot) * size * 0.34;
+      g.fillStyle = "#2A2420";
+      for (let k = 0; k < 36; k++) {
+        const a = (u * 1.4 + k / 36) % 1;
+        const x = capX + (((k * 29) % 13) / 12 - 0.5) * rr * (0.1 + a * 0.5);
+        const y = capY + a * (oy - capY);
+        g.fillRect(x, y, unit * 0.35, unit * 0.35);
+      }
+      sprite(g, shakerSprite(256), sx, sy, size, rot);
+      break;
+    }
+
+    case "glow": {
+      /* 烤箱焗烤：燈全亮、一圈一圈的光從玻璃窗透出來，起司在冒泡 */
+      sprite(g, ovenSprite(512, 1), cx, oy, S);
+      const wx = cx - S * 0.06;
+      const wy = oy - S * 0.05;
+      g.save();
+      g.globalCompositeOperation = "lighter";
+      const pulse = 0.35 + 0.15 * Math.sin(u * tau * 1.5);
+      const glow = g.createRadialGradient(wx, wy, 0, wx, wy, rr * 1.2);
+      glow.addColorStop(0, `rgba(255,210,110,${pulse})`);
+      glow.addColorStop(1, "rgba(255,210,110,0)");
+      g.fillStyle = glow;
+      g.fillRect(wx - rr * 1.2, wy - rr * 1.2, rr * 2.4, rr * 2.4);
+      g.strokeStyle = `rgba(255,230,150,${pulse * 0.8})`;
+      g.lineWidth = unit * 0.6;
+      g.lineCap = "round";
+      for (let k = 0; k < 12; k++) {
+        const a = (k / 12) * tau + u * 0.4;
+        g.beginPath();
+        g.moveTo(wx + Math.cos(a) * rr * 0.75, wy + Math.sin(a) * rr * 0.5);
+        g.lineTo(wx + Math.cos(a) * rr * 1.05, wy + Math.sin(a) * rr * 0.72);
+        g.stroke();
+      }
+      g.restore();
+      // 起司泡泡
+      for (let k = 0; k < 7; k++) {
+        const a = (u * 0.9 + k / 7) % 1;
+        g.fillStyle = `rgba(255,220,120,${0.9 * (1 - a)})`;
+        g.beginPath();
+        g.arc(wx + (k - 3) * rr * 0.08, wy + rr * 0.08 - a * rr * 0.12, unit * (0.4 + a * 0.8), 0, tau);
+        g.fill();
+      }
+      break;
+    }
+
+    case "serve": {
+      /* 端湯上桌：碗被穩穩端起來，旁邊閃著小星星 */
+      const lift = ease(u / 0.5);
+      const bob = Math.sin(u * tau * 1.1) * rr * 0.03;
+      sprite(g, bowlSprite(512, 0.8), cx, oy - rr * 0.18 * lift + bob, S);
+      g.fillStyle = "#FFD54A";
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * tau + u * 0.8;
+        const tw = 0.5 + 0.5 * Math.sin(u * tau * 2 + k);
+        star(g, cx + Math.cos(a) * rr * 1.1, oy - rr * 0.15 + Math.sin(a) * rr * 0.55, unit * (0.8 + tw * 1.2));
+      }
+      break;
+    }
+  }
+}
+
+/** 四個尖的小星星 */
+function star(g: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+  g.beginPath();
+  for (let k = 0; k < 8; k++) {
+    const a = (k / 8) * Math.PI * 2 - Math.PI / 2;
+    const rad = k % 2 === 0 ? r : r * 0.3;
+    g.lineTo(x + Math.cos(a) * rad, y + Math.sin(a) * rad);
+  }
+  g.closePath();
+  g.fill();
 }

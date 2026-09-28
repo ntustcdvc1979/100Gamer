@@ -84,10 +84,11 @@ export function carrotSprite(px: number): HTMLCanvasElement | null {
    平底鍋：鍋身＋鍋柄＋裡面的菜
    ------------------------------------------------------------ */
 
-export function panSprite(px: number, food: string, heat: number, lid: number, pepper: boolean): HTMLCanvasElement | null {
+/** 平底鍋。empty = 不放菜（菜被拋到空中的時候，菜另外用 foodSprite 畫） */
+export function panSprite(px: number, food: string, heat: number, lid: number, pepper: boolean, empty = false): HTMLCanvasElement | null {
   const h = Math.round(heat * 4);
   const l = Math.round(lid * 5);
-  return snap(`pan|${px}|${food}|${h}|${l}|${pepper}`, px, () => {
+  return snap(`pan|${px}|${food}|${h}|${l}|${pepper}|${empty}`, px, () => {
     const g = new THREE.Group();
     g.add(blobShadow(0.9, 0.3));
     const iron = new THREE.MeshPhysicalMaterial({ color: "#2A2A30", roughness: 0.35, metalness: 0.6, clearcoat: 0.4 });
@@ -104,11 +105,13 @@ export function panSprite(px: number, food: string, heat: number, lid: number, p
     handle.position.set(1.15, 0.22, 0);
     g.add(handle);
     // 菜：顏色隨熱度變深
-    const c = new THREE.Color(food).multiplyScalar(1 - h * 0.06);
-    const dish = new THREE.Mesh(new THREE.SphereGeometry(0.45, 32, 12), toy(c.getStyle(), { rough: 0.5, coat: 0.2 }));
-    dish.scale.y = 0.14;
-    dish.position.y = 0.15;
-    g.add(dish);
+    if (!empty) {
+      const c = new THREE.Color(food).multiplyScalar(1 - h * 0.06);
+      const dish = new THREE.Mesh(new THREE.SphereGeometry(0.45, 32, 12), toy(c.getStyle(), { rough: 0.5, coat: 0.2 }));
+      dish.scale.y = 0.14;
+      dish.position.y = 0.15;
+      g.add(dish);
+    }
     if (pepper) {
       const dot = toy("#1E1E1E", { rough: 0.8, coat: 0 });
       for (let k = 0; k < 24; k++) {
@@ -134,6 +137,112 @@ export function panSprite(px: number, food: string, heat: number, lid: number, p
     }
     g.rotation.y = -0.15;
     return { obj: g, camera: cam(3.6, 1.9, 0.15) };
+  });
+}
+
+/* ------------------------------------------------------------
+   做動作動畫用的小零件：拋到空中的菜、胡椒罐、飛起來的高麗菜葉
+   ------------------------------------------------------------ */
+
+/** 平底鍋的相機。菜用同一個角度拍，疊回鍋子上才對得齊（菜的中心就在圖的正中間） */
+const PAN_CAM = (): THREE.PerspectiveCamera => cam(3.6, 1.9, 0.15);
+
+/**
+ * 單獨一塊菜，角度跟 panSprite 一樣。
+ * seared = 煎過的那一面（翻過來時看到的），顏色深一點、有焦痕。
+ */
+export function foodSprite(px: number, kind: "egg" | "ham", seared: boolean): HTMLCanvasElement | null {
+  return snap(`food|${px}|${kind}|${seared}`, px, () => {
+    const g = new THREE.Group();
+    if (kind === "egg") {
+      const egg = new THREE.Mesh(
+        new THREE.SphereGeometry(0.42, 32, 12),
+        toy(seared ? "#D9901C" : "#F2B21C", { rough: 0.5, coat: 0.2 }),
+      );
+      egg.scale.y = 0.12;
+      g.add(egg);
+      // 蛋餅皮上的蔥花
+      const r = rng(5);
+      const scallion = toy("#4FA83A", { rough: 0.5 });
+      for (let k = 0; k < 14; k++) {
+        const d = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 6), scallion);
+        const a = r() * Math.PI * 2;
+        const rr = Math.sqrt(r()) * 0.3;
+        d.scale.y = 0.4;
+        d.position.set(Math.cos(a) * rr, 0.05, Math.sin(a) * rr);
+        g.add(d);
+      }
+    } else {
+      // 素火腿：一片圓角長方形的粉紅色厚片，煎過的那面有烤痕
+      const shape = new THREE.Shape();
+      const W = 0.34, D = 0.24, R = 0.07;
+      shape.moveTo(-W + R, -D);
+      shape.lineTo(W - R, -D); shape.quadraticCurveTo(W, -D, W, -D + R);
+      shape.lineTo(W, D - R); shape.quadraticCurveTo(W, D, W - R, D);
+      shape.lineTo(-W + R, D); shape.quadraticCurveTo(-W, D, -W, D - R);
+      shape.lineTo(-W, -D + R); shape.quadraticCurveTo(-W, -D, -W + R, -D);
+      const slab = new THREE.Mesh(
+        new THREE.ExtrudeGeometry(shape, { depth: 0.03, bevelEnabled: true, bevelSize: 0.015, bevelThickness: 0.012, bevelSegments: 3 }),
+        toy(seared ? "#B8444C" : "#E8606F", { rough: 0.45, coat: 0.35 }),
+      );
+      slab.rotation.x = -Math.PI / 2;
+      slab.position.y = -0.015;
+      g.add(slab);
+      if (seared) {
+        const mark = toy("#7A2A2A", { rough: 0.6 });
+        for (let k = -2; k <= 2; k++) {
+          const m = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.01, 0.4), mark);
+          m.position.set(k * 0.12, 0.035, 0);
+          m.rotation.y = 0.5;
+          g.add(m);
+        }
+      }
+    }
+    g.position.y = 0.15;
+    g.rotation.y = -0.15;
+    return { obj: g, camera: PAN_CAM() };
+  });
+}
+
+/** 胡椒罐：玻璃罐身裡看得到黑胡椒，上面一個有洞的銀色圓蓋。蓋子朝上，旋轉在 2D 做。 */
+export function shakerSprite(px: number): HTMLCanvasElement | null {
+  return snap(`shaker|${px}`, px, () => {
+    const g = new THREE.Group();
+    const glass = new THREE.MeshPhysicalMaterial({ color: "#E8F2FF", roughness: 0.05, transmission: 0.6, transparent: true, opacity: 0.55, clearcoat: 1 });
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.3, 0.8, 32), glass);
+    body.position.y = 0.4;
+    g.add(body);
+    const pepper = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.27, 0.55, 32), toy("#2B2622", { rough: 0.9 }));
+    pepper.position.y = 0.3;
+    g.add(pepper);
+    const metal = new THREE.MeshPhysicalMaterial({ color: "#D9DDE3", metalness: 0.9, roughness: 0.2 });
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.3, 32, 12, 0, Math.PI * 2, 0, Math.PI / 2), metal);
+    cap.scale.y = 0.6;
+    cap.position.y = 0.8;
+    g.add(cap);
+    const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.305, 0.305, 0.08, 32), metal);
+    ring.position.y = 0.8;
+    g.add(ring);
+    for (let k = 0; k < 7; k++) {
+      const a = (k / 7) * Math.PI * 2;
+      const hole = new THREE.Mesh(new THREE.SphereGeometry(0.025, 8, 6), toy("#222226"));
+      hole.position.set(Math.cos(a) * 0.12, 0.96, Math.sin(a) * 0.12);
+      g.add(hole);
+    }
+    return { obj: g, camera: cam(3.2, 0.9, 0.5) };
+  });
+}
+
+/** 一片高麗菜葉（炒的時候拋到空中那種），第 i 種形狀 */
+export function cabbageBitSprite(px: number, i: number): HTMLCanvasElement | null {
+  return snap(`cabbit|${px}|${i}`, px, () => {
+    const g = new THREE.Group();
+    const r = rng(100 + i * 13);
+    const leafM = new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.4, clearcoat: 0.6, side: THREE.DoubleSide });
+    const leaf = new THREE.Mesh(cabbageLeaf(r, 0.5, new THREE.Color("#8FCB4A").offsetHSL(0, 0, (r() - 0.5) * 0.1)), leafM);
+    leaf.rotation.set(-0.35, 0.25, r() * 3);
+    g.add(leaf);
+    return { obj: g, camera: cam(3, 0.4, 0) };
   });
 }
 
